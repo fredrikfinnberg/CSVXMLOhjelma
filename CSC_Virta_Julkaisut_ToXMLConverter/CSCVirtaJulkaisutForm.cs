@@ -14,7 +14,7 @@ using System.Xml.Schema;
 using System.Text.RegularExpressions;
 using Microsoft.VisualBasic.FileIO;
 
-// Viimeisin päivitys versio 2016-01-13 20:33
+// Viimeisin päivitetty sorsa ohjelmaversio 1.0.1 2016-03-05 19:45
 
 
 /* *******************************************************************
@@ -23,27 +23,31 @@ using Microsoft.VisualBasic.FileIO;
  * CSC - Virta-Julkaisutietojen CSV-XML muuntotyökalu (C) 2016
  * 
  * 
- * Työkalu on tarkoitettu muuntamaan Virta Julkaisutietovarantoon siirtoa 
- * varten xml-tiedosto valitusta csv-muodossa olevasta lähdetiedostosta 
+ * Työkalu voi olla avuksi kun halutaan muuntaa Virta-Julkaisutietovarantoa 
+ * varten xml-tiedosto csv-muodossa olevasta lähdetiedostosta 
  * 
- * Ohjelmaa on ensisijassa tarkoitettu vuoden 2015-2016 tiedonkeruita varten
- * lisäominaisuuksia tehdään tarpeen mukaan.
+ * Muuhun kuin Julkaisutietojen xml-tiedostojen tuottamiseen ohjelma ei ole tarkoitettu
+ * 
+ * 
+ * Ohjelmaa on tällä hetkellä ensisijassa tarkoitettu vuoden 2015-2016 tiedonkeruita varten.
+ * Lisäominaisuuksia tehdään tarpeen mukaan vuoden 2016 aikana, ennen seuraavaa tilastointivuotta 2017.
  * 
  * Korjaukset käynnissä olevaan tiedonkeruun tarpeisiin tehdään niin pian kuin mahdollista
+ * Bugi-ilmoitukset voi lähettää osoitteeseen virta-julkaisut@postit.csc.fi 
  * 
- * Valmis käännetty ohjelman exe-tiedosto ja ohje löytyy Virta-Julkaisutietopalvelujen sivuilta.
- * Lisäksi sieltä löytyy tiedonkeruun malli csv-tiedostot ja viimeisin XML-skeema
+ * Valmis käännetty ohjelman exe-tiedosto ja ohjeet löytyy Virta-Julkaisutietopalvelujen sivuilta.
+ * Lisäksi sivuilla löytyy tiedonkeruujen malli csv-tiedostot ja viimeisin XML-skeema (xsd)
  * 
  * 
- * Viimeisin versio tästä lähdekoodista, csv-xml-ohjelmalle, 
+ * Viimeisimmän version tästä lähdekoodista csv-xml-ohjelmalle, 
  * löydät https://github.com/fredrikfinnberg/CSVXMLOhjelma
  * 
  * 
  * 
- * Ota yhteyttä jos on kysymyksiä lähdekoodista tai itse ohjelman käytöstä   
- * fredrik.finnberg(a)csc.fi
+ * Ottakaa rohkeasti yhteyttä jos on kysymyksiä lähdekoodista tai itse ohjelman käytöstä   
+ * fredrik.finnberg@csc.fi tai virta-julkaisut@postit.csc.fi 
  * 
- * 
+ * Kiitos kiinnostuksesta!
  * 
  * *******************************************************************
  */
@@ -1812,6 +1816,8 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                                 cellValues2[0] = cellValues1[0]; // korkeakoulu Organisaatio
                                 cellValues2[1] = cellValues1[1]; // Ilmoitusvuosi
                                 cellValues2[2] = cellValues1[63]; // Julkaisun id tunnus
+                                
+                                cellValues2[3] = 2; // JulkaisunTilaKoodi
 
                                 cellValues2[4] = cellValues1[63]; // Julkaisun Organisaatiotunnus
 
@@ -2250,13 +2256,29 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
                                         bool num_ok = false;
 
-                                        if (getVuosi() >= 2014)
+                                        // Muutettu  if (getVuosi() >= 2014) 1.3.2016
+
+                                        if (getVuosi() == vuosiIlmo)
                                         {
                                             if (num >= 66)
                                             {
                                                 num_ok = true;
                                             }
                                         }
+                                        else
+                                        {
+                                            string infostr = "Väärä ilmoitusvuosi: " + getVuosi().ToString() + " Oikea ilmoitusvuosi: " + vuosiIlmo.ToString() + "! \r\n";
+                                            MessageBox.Show(infostr, "Väärä ilmoitusvuosi");
+
+                                            if (LokiOlemassa(masterloki))
+                                            {                                               
+                                                KirjoitaLokiin(infostr, masterloki);
+                                            }
+
+
+                                        }
+
+
 
                                         if (num_ok)
                                         {
@@ -2468,7 +2490,7 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                             if (elementti.Equals("JulkaisunTilaKoodi") )
                             {
                                 validiElementti = true;
-                                arvo = "0";
+                                // Default arvo = "2";
                             }
 
 
@@ -2664,11 +2686,22 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                                         // Vain jos on jotain
                                         if ( nimi.Length > 0) {
 
-                                            suku = nimi.Split(',')[0].Trim();
-                                            etu = nimi.Split(',')[1].Trim();
+                                            // Jos on sukunimi, etunimi
+                                            if (nimi.Contains(","))
+                                            {
+                                                suku = nimi.Split(',')[0].Trim();
+                                                etu = nimi.Split(',')[1].Trim();
 
-                                            writer.WriteElementString("Sukunimi", suku);
-                                            writer.WriteElementString("Etunimet", etu);
+                                                writer.WriteElementString("Sukunimi", suku);
+                                                writer.WriteElementString("Etunimet", etu);
+                                            }
+                                            else
+                                            {
+                                                suku = nimi.Trim();
+                                                writer.WriteElementString("Sukunimi", suku);
+                                                // Ei lainkaan etunimeä			
+                                            }
+
 
                                             // Yksikkökoodia
                                             string sisaElementti_yksikko = PalautaXMLElementtiNimi(j + 2);
@@ -3037,16 +3070,16 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
         {
             string[] koodit = arvo.Split(';');  // Tulee lista ; eroteltuja koodiarvoja
 
-            // A3 A4 B2 B3 C1 D2 D5 E2
-            // C2 ?
-            string[] ISBNPakollisuusJosJulkaisuTyyppiKoodi = { "A3", "A4", "B2", "B3", "C1", "D2", "D5", "E2" };
+            // A3 A4 B2 B3 C1  
+            // Poistettu D2  D5  E2   13.2.2016
+            string[] ISBNPakollisuusJosJulkaisuTyyppiKoodi = { "A3", "A4", "B2", "B3", "C1" };
 
             foreach (string koodi in koodit)
             {
                 if (Array.Exists(ISBNPakollisuusJosJulkaisuTyyppiKoodi, element => element == koodi))
-                {                    
+                {
                     return true;  // Eli ISBN on pakollinen				
-                }                
+                }
             }
 
             return false; // ISBN ei pakollinen kun ei ole pakollisten julkaisutyyppien joukossa
@@ -3058,13 +3091,14 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
         {
             string[] koodit = arvo.Split(';');  // Jos tulee lista ; eroteltuja koodiarvoja
 
-            // A1 A2 A4 B1 B2 B3 D1 
-            string[] ISSNPakollisuusJosJulkaisuTyyppiKoodi = { "A1", "A2", "A4", "B1", "B2", "B3", "D1" };
+            // A1 A2 A4 B1 B2 B3  
+            // Poistettu D1 13.2.2016
+            string[] ISSNPakollisuusJosJulkaisuTyyppiKoodi = { "A1", "A2", "A4", "B1", "B2", "B3" };
 
             foreach (string koodi in koodit)
             {
                 if (Array.Exists(ISSNPakollisuusJosJulkaisuTyyppiKoodi, element => element == koodi))
-                {                    
+                {
                     return true;  // Eli ISSN on pakollinen				
                 }
             }
@@ -3345,6 +3379,61 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                             XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
                         }
                     }
+
+                    // JulkaisunTilaKoodi vakio arvo 2 koska ei ole csv:ssä tätä tietoa, voi muuttaa sallittujen arvojen mukaan datagridissä
+                    if ((rivi.Cells[3] != null) || (rivi.Cells[3].Value.ToString().Length > 0))
+                    {
+                        int tilakoodi;
+
+                        if (!Int32.TryParse(rivi.Cells[3].Value.ToString().Trim(), out tilakoodi))
+                        {
+                            XMLdataGridView.Rows[num].Cells[3].Style.BackColor = Color.Red;
+                            TallennaXMLButton.Enabled = false;
+
+                            virheita += "Julkaisun tilakoodi voi olla vain -1,0,1 tai 2 (numeerinen), rivillä " + (num + 1) + ".\n\r\n\r";
+
+                            virheIlmoitus2();
+
+                            dgvc[3].HeaderCell.Style.BackColor = Color.Red;
+                            rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                            rowStyle.BackColor = Color.Red;
+                            XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                        }
+                        else if (tilakoodi <  -1 || tilakoodi > 2)
+                        {
+                            XMLdataGridView.Rows[num].Cells[3].Style.BackColor = Color.Red;
+                            TallennaXMLButton.Enabled = false;
+
+                            virheita += "Julkaisun tilakoodi voi olla vain -1,0,1 tai 2, rivillä " + (num + 1) + " koodi: " + tilakoodi + " on virheellinen " + ".\n\r\n\r";
+
+                            virheIlmoitus2();
+
+                            dgvc[3].HeaderCell.Style.BackColor = Color.Red;
+                            rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                            rowStyle.BackColor = Color.Red;
+                            XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+
+                        }
+                    }
+
+                    // JulkaisunTilaKoodi ei kuitenkaan saa olla tyhjä
+                    if ((rivi.Cells[3] == null) || (rivi.Cells[3].Value.ToString().Length == 0))
+                    {
+                        XMLdataGridView.Rows[num].Cells[3].Style.BackColor = Color.Red;
+                        TallennaXMLButton.Enabled = false;
+
+                        virheita += "Pakollinen tieto. Julkaisun tilakoodi ei saa olla tyhjä (arvon pitää olla 0, 1, 2 tai sitten -1), rivillä " + (num + 1) + ".\n\r\n\r";
+
+                        virheIlmoitus2();
+
+                        dgvc[3].HeaderCell.Style.BackColor = Color.Red;
+                        rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                        rowStyle.BackColor = Color.Red;
+                        XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                    }
+
+
+
 
 
                     // JulkaisunOrgTunnus (julkaisun organisaatiokohtainen ID) on pakollinen
