@@ -48,6 +48,7 @@
             this.optionsToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.asetuksetToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.avaaLokitiedostoToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.avaaCsvtarkistustiedostoToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.helpToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.contentsToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.toolStripSeparator5 = new System.Windows.Forms.ToolStripSeparator();
@@ -60,6 +61,7 @@
             this.AvaaXMLButton = new System.Windows.Forms.Button();
             this.Statuslabel2 = new System.Windows.Forms.Label();
             this.ValidoiXMLButton = new System.Windows.Forms.Button();
+            this.mikaVuosilabel = new System.Windows.Forms.Label();
             ((System.ComponentModel.ISupportInitialize)(this.LahdeDataGridView)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.XMLdataGridView)).BeginInit();
             this.menuStrip1.SuspendLayout();
@@ -71,9 +73,9 @@
             this.LahdeDataGridView.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
             | System.Windows.Forms.AnchorStyles.Right)));
             this.LahdeDataGridView.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-            this.LahdeDataGridView.Location = new System.Drawing.Point(13, 52);
+            this.LahdeDataGridView.Location = new System.Drawing.Point(13, 73);
             this.LahdeDataGridView.Name = "LahdeDataGridView";
-            this.LahdeDataGridView.Size = new System.Drawing.Size(930, 210);
+            this.LahdeDataGridView.Size = new System.Drawing.Size(930, 189);
             this.LahdeDataGridView.TabIndex = 0;
             // 
             // XMLdataGridView
@@ -214,7 +216,8 @@
             this.customizeToolStripMenuItem,
             this.optionsToolStripMenuItem,
             this.asetuksetToolStripMenuItem,
-            this.avaaLokitiedostoToolStripMenuItem});
+            this.avaaLokitiedostoToolStripMenuItem,
+            this.avaaCsvtarkistustiedostoToolStripMenuItem});
             this.toolsToolStripMenuItem.Name = "toolsToolStripMenuItem";
             this.toolsToolStripMenuItem.ShortcutKeys = ((System.Windows.Forms.Keys)((System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.U)));
             this.toolsToolStripMenuItem.Size = new System.Drawing.Size(64, 20);
@@ -224,7 +227,7 @@
             // 
             this.customizeToolStripMenuItem.Name = "customizeToolStripMenuItem";
             this.customizeToolStripMenuItem.ShortcutKeys = ((System.Windows.Forms.Keys)((System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.M)));
-            this.customizeToolStripMenuItem.Size = new System.Drawing.Size(244, 22);
+            this.customizeToolStripMenuItem.Size = new System.Drawing.Size(252, 22);
             this.customizeToolStripMenuItem.Text = "&Muunna XML muotoon";
             this.customizeToolStripMenuItem.Click += new System.EventHandler(this.MuunnaXMLButton_Click);
             // 
@@ -232,7 +235,7 @@
             // 
             this.optionsToolStripMenuItem.Name = "optionsToolStripMenuItem";
             this.optionsToolStripMenuItem.ShortcutKeys = ((System.Windows.Forms.Keys)((System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.D)));
-            this.optionsToolStripMenuItem.Size = new System.Drawing.Size(244, 22);
+            this.optionsToolStripMenuItem.Size = new System.Drawing.Size(252, 22);
             this.optionsToolStripMenuItem.Text = "Vali&doi";
             this.optionsToolStripMenuItem.Click += new System.EventHandler(this.optionsToolStripMenuItem_Click);
             // 
@@ -240,7 +243,7 @@
             // 
             this.asetuksetToolStripMenuItem.Name = "asetuksetToolStripMenuItem";
             this.asetuksetToolStripMenuItem.ShortcutKeys = ((System.Windows.Forms.Keys)((System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.A)));
-            this.asetuksetToolStripMenuItem.Size = new System.Drawing.Size(244, 22);
+            this.asetuksetToolStripMenuItem.Size = new System.Drawing.Size(252, 22);
             this.asetuksetToolStripMenuItem.Text = "&Asetukset";
             this.asetuksetToolStripMenuItem.Click += new System.EventHandler(this.asetuksetToolStripMenuItem_Click);
             // 
@@ -248,9 +251,17 @@
             // 
             this.avaaLokitiedostoToolStripMenuItem.Name = "avaaLokitiedostoToolStripMenuItem";
             this.avaaLokitiedostoToolStripMenuItem.ShortcutKeys = ((System.Windows.Forms.Keys)((System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.L)));
-            this.avaaLokitiedostoToolStripMenuItem.Size = new System.Drawing.Size(244, 22);
+            this.avaaLokitiedostoToolStripMenuItem.Size = new System.Drawing.Size(252, 22);
             this.avaaLokitiedostoToolStripMenuItem.Text = "Avaa &lokitiedosto";
             this.avaaLokitiedostoToolStripMenuItem.Click += new System.EventHandler(this.avaaLokitiedostoToolStripMenuItem_Click);
+            // 
+            // avaaCsvtarkistustiedostoToolStripMenuItem
+            // 
+            this.avaaCsvtarkistustiedostoToolStripMenuItem.Name = "avaaCsvtarkistustiedostoToolStripMenuItem";
+            this.avaaCsvtarkistustiedostoToolStripMenuItem.ShortcutKeys = ((System.Windows.Forms.Keys)((System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.E)));
+            this.avaaCsvtarkistustiedostoToolStripMenuItem.Size = new System.Drawing.Size(252, 22);
+            this.avaaCsvtarkistustiedostoToolStripMenuItem.Text = "Avaa csv-tarkistustiedosto";
+            this.avaaCsvtarkistustiedostoToolStripMenuItem.Click += new System.EventHandler(this.avaaCsvtarkistustiedostoToolStripMenuItem_Click);
             // 
             // helpToolStripMenuItem
             // 
@@ -288,7 +299,7 @@
             // 
             this.Lahdelabel.AutoSize = true;
             this.Lahdelabel.Font = new System.Drawing.Font("Microsoft Sans Serif", 9F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.Lahdelabel.Location = new System.Drawing.Point(12, 34);
+            this.Lahdelabel.Location = new System.Drawing.Point(12, 55);
             this.Lahdelabel.Name = "Lahdelabel";
             this.Lahdelabel.Size = new System.Drawing.Size(101, 15);
             this.Lahdelabel.TabIndex = 7;
@@ -361,12 +372,22 @@
             this.ValidoiXMLButton.UseVisualStyleBackColor = true;
             this.ValidoiXMLButton.Click += new System.EventHandler(this.ValidoiXMLButton_Click);
             // 
+            // mikaVuosilabel
+            // 
+            this.mikaVuosilabel.AutoSize = true;
+            this.mikaVuosilabel.Location = new System.Drawing.Point(15, 33);
+            this.mikaVuosilabel.Name = "mikaVuosilabel";
+            this.mikaVuosilabel.Size = new System.Drawing.Size(32, 13);
+            this.mikaVuosilabel.TabIndex = 15;
+            this.mikaVuosilabel.Text = "vuosi";
+            // 
             // CSC_VIRTA_JulkaisutForm
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.BackColor = System.Drawing.SystemColors.ControlDark;
             this.ClientSize = new System.Drawing.Size(955, 635);
+            this.Controls.Add(this.mikaVuosilabel);
             this.Controls.Add(this.ValidoiXMLButton);
             this.Controls.Add(this.Statuslabel2);
             this.Controls.Add(this.AvaaXMLButton);
@@ -385,7 +406,7 @@
             this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
             this.MainMenuStrip = this.menuStrip1;
             this.Name = "CSC_VIRTA_JulkaisutForm";
-            this.Text = "CSC VIRTA Julkaisutietojen CSV-XML-työkalu (versio 1.0.4, 13.3.2016)";
+            this.Text = "CSC VIRTA Julkaisutietojen CSV-XML-työkalu (versio 1.1.0  28.04.2016)";
             ((System.ComponentModel.ISupportInitialize)(this.LahdeDataGridView)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.XMLdataGridView)).EndInit();
             this.menuStrip1.ResumeLayout(false);
@@ -428,6 +449,8 @@
         private System.Windows.Forms.ToolStripMenuItem asetuksetToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem tyhjennäVanhatTiedotJaLueUusiLähdetiedostoToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem avaaLokitiedostoToolStripMenuItem;
+        private System.Windows.Forms.Label mikaVuosilabel;
+        private System.Windows.Forms.ToolStripMenuItem avaaCsvtarkistustiedostoToolStripMenuItem;
     }
 }
 

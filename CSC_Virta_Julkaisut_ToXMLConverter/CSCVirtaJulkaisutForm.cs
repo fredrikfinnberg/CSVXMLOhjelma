@@ -13,8 +13,16 @@ using System.Xml;
 using System.Xml.Schema;
 using System.Text.RegularExpressions;
 using Microsoft.VisualBasic.FileIO;
+using Excel = Microsoft.Office.Interop.Excel; 
 
-// Viimeisin päivitetty sorsa ohjelmaversio 1.0.4 2016-03-13 14:46
+// Viimeisin päivitetty sorsa ohjelmaversio 1.1.0 2016-04-28 22:56
+// Tuki 2016 csv-mallitiedostolle
+// Uusi sarake "julkaisun tila" ja molemilla "julkaisun organisaatiokohtainen id"
+// Indexointi meni uusiksi, uusia sarakkeita ja poistettuja sarakkeita
+// csv-tarkistustiedosto
+
+// URN pysyvä osoite, mikäli URN:ISBN:978-951-51-1829-5 niin eteen http://urn.fi => http://urn.fi/URN:ISBN:978-951-51-1829-5
+// Rivinro missä korjataan isbn maakoodi jne 2016-03-18
 
 
 /* *******************************************************************
@@ -86,6 +94,7 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
             errorTextBox.Clear();
             LokiTiedosto("loki.txt");
+            CSV_virhe_LokiTiedosto("tarkistusloki.csv");           
         }
 
 
@@ -134,18 +143,15 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
             }
 
         }
-
-
+        
         // Generoidaanko Julkaisun organisaatiotunnus true = kyllä, false = ei
         public static bool GeneroiJulkaisunOrganisaatioTunnus = true;
-
-
-
-        // Ilmoitusvuosi, joka vaihdetaan ohjelmassa Työkalut/Asetukset kautta, vakio arvo nyt kuitenkin 2015
-        public static int vuosiIlmo = 2015;
-
-        // Mikä vuosi luetussa csv-ainestossa, vakio arvo 2015
-        public int vuosiMuuttuja = 2015;
+        
+        // Ilmoitusvuosi, joka vaihdetaan ohjelmassa Työkalut/Asetukset kautta
+        public static int vuosiIlmo = 2016;
+       
+        // Mikä vuosi luetussa csv-ainestossa, vakio arvo 
+        public int vuosiMuuttuja = 2016;
 
         // Tulevan XML tiedoston nimi
         public static string UusiXMLFile = "";
@@ -153,9 +159,46 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
         // Ohjelman masterloki-tiedoston nimi
         public static string masterloki = "loki.txt";
 
+        // CSV muotoinen tarkistusloki
+        public static string csvtarkistusloki = "tarkistusloki.csv";
+
         // Organisaatio koodi ainestosta
         public string organisaatiokoodi = "";
-        
+
+        public DataTable virheTaulukko = new DataTable("Virheet");
+
+        // Luodaan uusi CSV_virhe_LokiTiedosto jos ei ole jo olemassa
+        private void CSV_virhe_LokiTiedosto(string nimi)
+        {
+            string lokitiedostonimi = nimi.Trim();
+
+            // olemassa jo, poistetaan
+            if (File.Exists(lokitiedostonimi))
+            {
+                try
+                {
+                    File.Delete(lokitiedostonimi);
+                }
+                catch (Exception delex)
+                {
+                    MessageBox.Show("tarkistusloki.csv tiedostoa ei voitu poistaa." + delex.Message);
+                }
+            }
+
+            // Luodaan tarkistusloki.csv jos ei ole olemassa
+            try
+            {
+                StreamWriter csvlokifile = new StreamWriter("tarkistusloki.csv", false);    
+                csvlokifile.Close();
+            }
+
+            catch (Exception ex)
+            {
+                MessageBox.Show("tarkistusloki.csv tiedostoa ei voitu luoda." + ex.Message);
+            }
+
+        }	
+
 
         // Hae mikä vuosi
         private int getVuosi()
@@ -167,6 +210,11 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
         private void setVuosi( int vuosi)
         {
             vuosiMuuttuja = vuosi;
+
+            mikaVuosilabel.Text = vuosi.ToString();
+
+            vuosiIlmo = vuosi;
+
         }
 
         // Hae XML-tiedoston nimi
@@ -193,6 +241,20 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
         private void setOrganisaatioKoodi(string koodi)
         {
             organisaatiokoodi = koodi.Trim();
+        }
+
+        // Kerätään virheitä virhetaulukkoon
+        private void RekisteroiVirheet(string virhe_puute, string julkorgtunnus, string rivi, string tieto, string viesti)
+        {
+            object[] virheLista = new object[5];
+
+            virheLista[0] = virhe_puute + ";";
+            virheLista[1] = julkorgtunnus + ";";
+            virheLista[2] = rivi   + ";";
+            virheLista[3] = tieto  + ";";
+            virheLista[4] = viesti + ";"; 
+
+            virheTaulukko.Rows.Add(virheLista);
         }
 
      
@@ -262,7 +324,7 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
             if (getVuosi() == 2016)
             {
-                maximi = 67;
+                maximi = 62;
             }
 
             if (getVuosi() == 2015)
@@ -280,6 +342,8 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                 maximi = 46;
             }
 
+            //MessageBox.Show(num.ToString(), "num Parsed");
+
 			// Luetaan parsedDatan sarakkeet				
 			String[] sarakkeetCSV = new String[maximi]; 			
             
@@ -292,15 +356,20 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 			
 			// Tiedostonmukaiset sarakenimet vuosille 2015 ja 2016, eikä sitä vanhemmille tiedoille tässä vaiheessa
             String[] CSVSarakkeet2015_amk = { "Ammattikorkeakoulu", "Vuosi", "Julkaisutyyppi", "I Tieteenala", "II Tieteenala", "III Tieteenala", "IV Tieteenala", "V Tieteenala", "VI Tieteenala", "I Koulutusala", "II Koulutusala", "III Koulutusala", "IV Koulutusala", "V Koulutusala", "VI Koulutusala", "Organisaation tekijät", "I Organisaation alayksikkö", "II Organisaation alayksikkö", "III Organisaation alayksikkö", "IV Organisaation alayksikkö", "V Organisaation alayksikkö", "VI Organisaation alayksikkö", "VII Organisaation alayksikkö", "VIII Organisaation alayksikkö", "IX Organisaation alayksikkö", "X Organisaation alayksikkö", "XI Organisaation alayksikkö", "XII Organisaation alayksikkö", "XIII Organisaation alayksikkö", "XIV Organisaation alayksikkö", "XV Organisaation alayksikkö", "XVI Organisaation alayksikkö", "XVII Organisaation alayksikkö", "XVIII Organisaation alayksikkö", "XIX Organisaation alayksikkö", "XX Organisaation alayksikkö", "Julkaisun tekijät", "Julkaisun tekijöiden lukumäärä", "Kansainvälinen yhteisjulkaisu", "Yliopistollinen sairaanhoitopiiri, yhteisjulkaisu", "Valtion sektoritutkimuslaitos, yhteisjulkaisu", "Muu kotimainen tutkimusorganisaatio, yhteisjulkaisu", "Julkaisun nimi", "Julkaisuvuosi", "Volyymi", "Numero", "Sivut", "Artikkelinumero", "Julkaisun kieli", "Lehden/sarjan nimi", "ISSN", "ISBN", "Emojulkaisun nimi", "Emojulkaisun toimittajat", "Kustantaja", "Julkaisun kustannuspaikka", "Julkaisumaa", "Julkaisun kansainvälisyys", "DOI-tunniste", "Pysyvä verkko-osoite", "Avoin saatavuus", "Lähdetietokannan koodi",  "Julkaisun julkaisukanava (JUFO-ID)", "Julkaisun id", "Konferenssin vakiintunut nimi", "Avainsanat" };
-            String[] CSVSarakkeet2016_amk = { "Ammattikorkeakoulu", "Vuosi", "Julkaisutyyppi", "I Tieteenala", "II Tieteenala", "III Tieteenala", "IV Tieteenala", "V Tieteenala", "VI Tieteenala", "I Koulutusala", "II Koulutusala", "III Koulutusala", "IV Koulutusala", "V Koulutusala", "VI Koulutusala", "Organisaation tekijät", "I Organisaation alayksikkö", "II Organisaation alayksikkö", "III Organisaation alayksikkö", "IV Organisaation alayksikkö", "V Organisaation alayksikkö", "VI Organisaation alayksikkö", "VII Organisaation alayksikkö", "VIII Organisaation alayksikkö", "IX Organisaation alayksikkö", "X Organisaation alayksikkö", "XI Organisaation alayksikkö", "XII Organisaation alayksikkö", "XIII Organisaation alayksikkö", "XIV Organisaation alayksikkö", "XV Organisaation alayksikkö", "XVI Organisaation alayksikkö", "XVII Organisaation alayksikkö", "XVIII Organisaation alayksikkö", "XIX Organisaation alayksikkö", "XX Organisaation alayksikkö", "Julkaisun tekijät", "Julkaisun tekijöiden lukumäärä", "Kansainvälinen yhteisjulkaisu", "Yhteisjulkaisu yrityksen kanssa", "Julkaisun nimi", "Julkaisuvuosi", "Volyymi", "Numero", "Sivut", "Artikkelinumero", "Julkaisun kieli", "Lehden/sarjan nimi", "ISSN", "ISBN", "Emojulkaisun nimi", "Emojulkaisun toimittajat", "Kustantaja", "Julkaisun kustannuspaikka", "Julkaisumaa", "Julkaisun kansainvälisyys", "DOI-tunniste", "Pysyvä verkko-osoite", "Avoin saatavuus", "Lähdetietokannan koodi", "Julkaisun julkaisukanava (JUFO-ID)", "Julkaisun organisaatiokohtainen id", "Konferenssin vakiintunut nimi", "Avainsanat", "Julkaisu rinnakkaistallennettu", "Rinnakkaistallennetun version verkko-osoite", "ORCID" };
+            String[] CSVSarakkeet2016_amk = { "Ammattikorkeakoulu", "Vuosi", "Julkaisutyyppi", "I Tieteenala", "II Tieteenala", "III Tieteenala", "IV Tieteenala", "V Tieteenala", "VI Tieteenala", "Organisaation tekijät", "I Organisaation alayksikkö", "II Organisaation alayksikkö", "III Organisaation alayksikkö", "IV Organisaation alayksikkö", "V Organisaation alayksikkö", "VI Organisaation alayksikkö", "VII Organisaation alayksikkö", "VIII Organisaation alayksikkö", "IX Organisaation alayksikkö", "X Organisaation alayksikkö", "XI Organisaation alayksikkö", "XII Organisaation alayksikkö", "XIII Organisaation alayksikkö", "XIV Organisaation alayksikkö", "XV Organisaation alayksikkö", "XVI Organisaation alayksikkö", "XVII Organisaation alayksikkö", "XVIII Organisaation alayksikkö", "XIX Organisaation alayksikkö", "XX Organisaation alayksikkö", "Julkaisun tekijät", "Julkaisun tekijöiden lukumäärä", "Kansainvälinen yhteisjulkaisu", "Yhteisjulkaisu yrityksen kanssa", "Julkaisun nimi", "Julkaisuvuosi", "Volyymi", "Numero", "Sivut", "Artikkelinumero", "Julkaisun kieli", "Lehden/sarjan nimi", "ISSN", "ISBN", "Emojulkaisun nimi", "Emojulkaisun toimittajat", "Kustantaja", "Julkaisun kustannuspaikka", "Julkaisumaa", "Julkaisun kansainvälisyys", "DOI-tunniste", "Pysyvä verkko-osoite", "Avoin saatavuus", "Lähdetietokannan koodi", "Julkaisun julkaisukanava (JUFO-ID)", "Julkaisun organisaatiokohtainen id", "Konferenssin vakiintunut nimi", "Avainsanat", "Julkaisu rinnakkaistallennettu", "Rinnakkaistallennetun version verkko-osoite", "ORCID", "Julkaisun tila" };
 
     
             String[] CSVSarakkeet2015 = { "Organisaatiotunnus", "Vuosi", "Julkaisutyyppi", "I Tieteenala", "II Tieteenala", "III Tieteenala", "IV Tieteenala", "V Tieteenala", "VI Tieteenala", "I Koulutusala", "II Koulutusala", "III Koulutusala", "IV Koulutusala", "V Koulutusala", "VI Koulutusala", "Organisaation tekijät", "I Organisaation alayksikkö", "II Organisaation alayksikkö", "III Organisaation alayksikkö", "IV Organisaation alayksikkö", "V Organisaation alayksikkö", "VI Organisaation alayksikkö", "VII Organisaation alayksikkö", "VIII Organisaation alayksikkö", "IX Organisaation alayksikkö", "X Organisaation alayksikkö", "XI Organisaation alayksikkö", "XII Organisaation alayksikkö", "XIII Organisaation alayksikkö", "XIV Organisaation alayksikkö", "XV Organisaation alayksikkö", "XVI Organisaation alayksikkö", "XVII Organisaation alayksikkö", "XVIII Organisaation alayksikkö", "XIX Organisaation alayksikkö", "XX Organisaation alayksikkö", "Julkaisun tekijät", "Julkaisun tekijöiden lukumäärä", "Kansainvälinen yhteisjulkaisu", "Yliopistollinen sairaanhoitopiiri, yhteisjulkaisu", "Valtion sektoritutkimuslaitos, yhteisjulkaisu", "Muu kotimainen tutkimusorganisaatio, yhteisjulkaisu", "Julkaisun nimi", "Julkaisuvuosi", "Volyymi", "Numero", "Sivut", "Artikkelinumero", "Julkaisun kieli", "Lehden/sarjan nimi", "ISSN", "ISBN", "Emojulkaisun nimi", "Emojulkaisun toimittajat", "Kustantaja", "Julkaisun kustannuspaikka", "Julkaisumaa", "Julkaisun kansainvälisyys", "DOI-tunniste", "Pysyvä verkko-osoite", "Avoin saatavuus", "Lähdetietokannan koodi",  "Julkaisun julkaisukanava (JUFO-ID)", "Julkaisun organisaatiokohtainen id", "Konferenssin vakiintunut nimi", "Avainsanat" };
-            String[] CSVSarakkeet2016 = { "Organisaatiotunnus", "Vuosi", "Julkaisutyyppi", "I Tieteenala", "II Tieteenala", "III Tieteenala", "IV Tieteenala", "V Tieteenala", "VI Tieteenala", "I Koulutusala", "II Koulutusala", "III Koulutusala", "IV Koulutusala", "V Koulutusala", "VI Koulutusala", "Organisaation tekijät", "I Organisaation alayksikkö", "II Organisaation alayksikkö", "III Organisaation alayksikkö", "IV Organisaation alayksikkö", "V Organisaation alayksikkö", "VI Organisaation alayksikkö", "VII Organisaation alayksikkö", "VIII Organisaation alayksikkö", "IX Organisaation alayksikkö", "X Organisaation alayksikkö", "XI Organisaation alayksikkö", "XII Organisaation alayksikkö", "XIII Organisaation alayksikkö", "XIV Organisaation alayksikkö", "XV Organisaation alayksikkö", "XVI Organisaation alayksikkö", "XVII Organisaation alayksikkö", "XVIII Organisaation alayksikkö", "XIX Organisaation alayksikkö", "XX Organisaation alayksikkö", "Julkaisun tekijät", "Julkaisun tekijöiden lukumäärä", "Kansainvälinen yhteisjulkaisu", "Yhteisjulkaisu yrityksen kanssa", "Julkaisun nimi", "Julkaisuvuosi", "Volyymi", "Numero", "Sivut", "Artikkelinumero", "Julkaisun kieli", "Lehden/sarjan nimi", "ISSN", "ISBN", "Emojulkaisun nimi", "Emojulkaisun toimittajat", "Kustantaja", "Julkaisun kustannuspaikka", "Julkaisumaa", "Julkaisun kansainvälisyys", "DOI-tunniste", "Pysyvä verkko-osoite", "Avoin saatavuus", "Lähdetietokannan koodi", "Julkaisun julkaisukanava (JUFO-ID)", "Julkaisun organisaatiokohtainen id", "Konferenssin vakiintunut nimi", "Avainsanat", "Julkaisu rinnakkaistallennettu", "Rinnakkaistallennetun version verkko-osoite", "ORCID" };
+            String[] CSVSarakkeet2016 = { "Organisaatiotunnus", "Vuosi", "Julkaisutyyppi", "I Tieteenala", "II Tieteenala", "III Tieteenala", "IV Tieteenala", "V Tieteenala", "VI Tieteenala", "Organisaation tekijät", "I Organisaation alayksikkö", "II Organisaation alayksikkö", "III Organisaation alayksikkö", "IV Organisaation alayksikkö", "V Organisaation alayksikkö", "VI Organisaation alayksikkö", "VII Organisaation alayksikkö", "VIII Organisaation alayksikkö", "IX Organisaation alayksikkö", "X Organisaation alayksikkö", "XI Organisaation alayksikkö", "XII Organisaation alayksikkö", "XIII Organisaation alayksikkö", "XIV Organisaation alayksikkö", "XV Organisaation alayksikkö", "XVI Organisaation alayksikkö", "XVII Organisaation alayksikkö", "XVIII Organisaation alayksikkö", "XIX Organisaation alayksikkö", "XX Organisaation alayksikkö", "Julkaisun tekijät", "Julkaisun tekijöiden lukumäärä", "Kansainvälinen yhteisjulkaisu", "Yhteisjulkaisu yrityksen kanssa", "Julkaisun nimi", "Julkaisuvuosi", "Volyymi", "Numero", "Sivut", "Artikkelinumero", "Julkaisun kieli", "Lehden/sarjan nimi", "ISSN", "ISBN", "Emojulkaisun nimi", "Emojulkaisun toimittajat", "Kustantaja", "Julkaisun kustannuspaikka", "Julkaisumaa", "Julkaisun kansainvälisyys", "DOI-tunniste", "Pysyvä verkko-osoite", "Avoin saatavuus", "Lähdetietokannan koodi", "Julkaisun julkaisukanava (JUFO-ID)", "Julkaisun organisaatiokohtainen id", "Konferenssin vakiintunut nimi", "Avainsanat", "Julkaisu rinnakkaistallennettu", "Rinnakkaistallennetun version verkko-osoite", "ORCID", "Julkaisun tila" };
 
             // Jos on tallennettu suoraan Excelistä niin sarakenimet ovat todennäköisesti "väärin" eli ä => "Ã¤", ö => "Ã¶" jne
             String[] CSVSarakkeet2015_utf_vaarin_amk = { "Ammattikorkeakoulu", "Vuosi", "Julkaisutyyppi", "I Tieteenala", "II Tieteenala", "III Tieteenala", "IV Tieteenala", "V Tieteenala", "VI Tieteenala", "I Koulutusala", "II Koulutusala", "III Koulutusala", "IV Koulutusala", "V Koulutusala", "VI Koulutusala", "Organisaation tekijÃ¤t", "I Organisaation alayksikkÃ¶", "II Organisaation alayksikkÃ¶", "III Organisaation alayksikkÃ¶", "IV Organisaation alayksikkÃ¶", "V Organisaation alayksikkÃ¶", "VI Organisaation alayksikkÃ¶", "VII Organisaation alayksikkÃ¶", "VIII Organisaation alayksikkÃ¶", "IX Organisaation alayksikkÃ¶", "X Organisaation alayksikkÃ¶", "XI Organisaation alayksikkÃ¶", "XII Organisaation alayksikkÃ¶", "XIII Organisaation alayksikkÃ¶", "XIV Organisaation alayksikkÃ¶", "XV Organisaation alayksikkÃ¶", "XVI Organisaation alayksikkÃ¶", "XVII Organisaation alayksikkÃ¶", "XVIII Organisaation alayksikkÃ¶", "XIX Organisaation alayksikkÃ¶", "XX Organisaation alayksikkÃ¶", "Julkaisun tekijÃ¤t", "Julkaisun tekijÃ¶iden lukumÃ¤Ã¤rÃ¤", "KansainvÃ¤linen yhteisjulkaisu", "Yliopistollinen sairaanhoitopiiri, yhteisjulkaisu", "Valtion sektoritutkimuslaitos, yhteisjulkaisu", "Muu kotimainen tutkimusorganisaatio, yhteisjulkaisu", "Julkaisun nimi", "Julkaisuvuosi", "Volyymi", "Numero", "Sivut", "Artikkelinumero", "Julkaisun kieli", "Lehden/sarjan nimi", "ISSN", "ISBN", "Emojulkaisun nimi", "Emojulkaisun toimittajat", "Kustantaja", "Julkaisun kustannuspaikka", "Julkaisumaa", "Julkaisun kansainvÃ¤lisyys", "DOI-tunniste", "PysyvÃ¤ verkko-osoite", "Avoin saatavuus", "LÃ¤hdetietokannan koodi", "Julkaisun julkaisukanava (JUFO-ID)", "Julkaisun id", "Konferenssin vakiintunut nimi", "Avainsanat" };
             String[] CSVSarakkeet2015_utf_vaarin_yo  = { "Organisaatiotunnus", "Vuosi", "Julkaisutyyppi", "I Tieteenala", "II Tieteenala", "III Tieteenala", "IV Tieteenala", "V Tieteenala", "VI Tieteenala", "I Koulutusala", "II Koulutusala", "III Koulutusala", "IV Koulutusala", "V Koulutusala", "VI Koulutusala", "Organisaation tekijÃ¤t", "I Organisaation alayksikkÃ¶", "II Organisaation alayksikkÃ¶", "III Organisaation alayksikkÃ¶", "IV Organisaation alayksikkÃ¶", "V Organisaation alayksikkÃ¶", "VI Organisaation alayksikkÃ¶", "VII Organisaation alayksikkÃ¶", "VIII Organisaation alayksikkÃ¶", "IX Organisaation alayksikkÃ¶", "X Organisaation alayksikkÃ¶", "XI Organisaation alayksikkÃ¶", "XII Organisaation alayksikkÃ¶", "XIII Organisaation alayksikkÃ¶", "XIV Organisaation alayksikkÃ¶", "XV Organisaation alayksikkÃ¶", "XVI Organisaation alayksikkÃ¶", "XVII Organisaation alayksikkÃ¶", "XVIII Organisaation alayksikkÃ¶", "XIX Organisaation alayksikkÃ¶", "XX Organisaation alayksikkÃ¶", "Julkaisun tekijÃ¤t", "Julkaisun tekijÃ¶iden lukumÃ¤Ã¤rÃ¤", "KansainvÃ¤linen yhteisjulkaisu", "Yliopistollinen sairaanhoitopiiri, yhteisjulkaisu", "Valtion sektoritutkimuslaitos, yhteisjulkaisu", "Muu kotimainen tutkimusorganisaatio, yhteisjulkaisu", "Julkaisun nimi", "Julkaisuvuosi", "Volyymi", "Numero", "Sivut", "Artikkelinumero", "Julkaisun kieli", "Lehden/sarjan nimi", "ISSN", "ISBN", "Emojulkaisun nimi", "Emojulkaisun toimittajat", "Kustantaja", "Julkaisun kustannuspaikka", "Julkaisumaa", "Julkaisun kansainvÃ¤lisyys", "DOI-tunniste", "PysyvÃ¤ verkko-osoite", "Avoin saatavuus", "LÃ¤hdetietokannan koodi", "Julkaisun julkaisukanava (JUFO-ID)", "Julkaisun organisaatiokohtainen id", "Konferenssin vakiintunut nimi", "Avainsanat" };
+
+            // Jos on tallennettu suoraan Excelistä niin sarakenimet ovat todennäköisesti "väärin" eli ä => "Ã¤", ö => "Ã¶" jne
+            String[] CSVSarakkeet2016_utf_vaarin_amk = { "Ammattikorkeakoulu", "Vuosi", "Julkaisutyyppi", "I Tieteenala", "II Tieteenala", "III Tieteenala", "IV Tieteenala", "V Tieteenala", "VI Tieteenala", "Organisaation tekijÃ¤t", "I Organisaation alayksikkÃ¶", "II Organisaation alayksikkÃ¶", "III Organisaation alayksikkÃ¶", "IV Organisaation alayksikkÃ¶", "V Organisaation alayksikkÃ¶", "VI Organisaation alayksikkÃ¶", "VII Organisaation alayksikkÃ¶", "VIII Organisaation alayksikkÃ¶", "IX Organisaation alayksikkÃ¶", "X Organisaation alayksikkÃ¶", "XI Organisaation alayksikkÃ¶", "XII Organisaation alayksikkÃ¶", "XIII Organisaation alayksikkÃ¶", "XIV Organisaation alayksikkÃ¶", "XV Organisaation alayksikkÃ¶", "XVI Organisaation alayksikkÃ¶", "XVII Organisaation alayksikkÃ¶", "XVIII Organisaation alayksikkÃ¶", "XIX Organisaation alayksikkÃ¶", "XX Organisaation alayksikkÃ¶", "Julkaisun tekijÃ¤t", "Julkaisun tekijÃ¶iden lukumÃ¤Ã¤rÃ¤", "KansainvÃ¤linen yhteisjulkaisu", "Yhteisjulkaisu yrityksen kanssa", "Julkaisun nimi", "Julkaisuvuosi", "Volyymi", "Numero", "Sivut", "Artikkelinumero", "Julkaisun kieli", "Lehden/sarjan nimi", "ISSN", "ISBN", "Emojulkaisun nimi", "Emojulkaisun toimittajat", "Kustantaja", "Julkaisun kustannuspaikka", "Julkaisumaa", "Julkaisun kansainvÃ¤lisyys", "DOI-tunniste", "PysyvÃ¤ verkko-osoite", "Avoin saatavuus", "LÃ¤hdetietokannan koodi", "Julkaisun julkaisukanava (JUFO-ID)", "Julkaisun organisaatiokohtainen id", "Konferenssin vakiintunut nimi", "Avainsanat", "Julkaisu rinnakkaistallennettu", "Rinnakkaistallennetun version verkko-osoite", "ORCID", "Julkaisun tila" };
+            String[] CSVSarakkeet2016_utf_vaarin_yo = { "Organisaatiotunnus", "Vuosi", "Julkaisutyyppi", "I Tieteenala", "II Tieteenala", "III Tieteenala", "IV Tieteenala", "V Tieteenala", "VI Tieteenala","Organisaation tekijÃ¤t", "I Organisaation alayksikkÃ¶", "II Organisaation alayksikkÃ¶", "III Organisaation alayksikkÃ¶", "IV Organisaation alayksikkÃ¶", "V Organisaation alayksikkÃ¶", "VI Organisaation alayksikkÃ¶", "VII Organisaation alayksikkÃ¶", "VIII Organisaation alayksikkÃ¶", "IX Organisaation alayksikkÃ¶", "X Organisaation alayksikkÃ¶", "XI Organisaation alayksikkÃ¶", "XII Organisaation alayksikkÃ¶", "XIII Organisaation alayksikkÃ¶", "XIV Organisaation alayksikkÃ¶", "XV Organisaation alayksikkÃ¶", "XVI Organisaation alayksikkÃ¶", "XVII Organisaation alayksikkÃ¶", "XVIII Organisaation alayksikkÃ¶", "XIX Organisaation alayksikkÃ¶", "XX Organisaation alayksikkÃ¶", "Julkaisun tekijÃ¤t", "Julkaisun tekijÃ¶iden lukumÃ¤Ã¤rÃ¤", "KansainvÃ¤linen yhteisjulkaisu", "Yhteisjulkaisu yrityksen kanssa", "Julkaisun nimi", "Julkaisuvuosi", "Volyymi", "Numero", "Sivut", "Artikkelinumero", "Julkaisun kieli", "Lehden/sarjan nimi", "ISSN", "ISBN", "Emojulkaisun nimi", "Emojulkaisun toimittajat", "Kustantaja", "Julkaisun kustannuspaikka", "Julkaisumaa", "Julkaisun kansainvÃ¤lisyys", "DOI-tunniste", "PysyvÃ¤ verkko-osoite", "Avoin saatavuus", "LÃ¤hdetietokannan koodi", "Julkaisun julkaisukanava (JUFO-ID)", "Julkaisun organisaatiokohtainen id", "Konferenssin vakiintunut nimi", "Avainsanat", "Julkaisu rinnakkaistallennettu", "Rinnakkaistallennetun version verkko-osoite", "ORCID", "Julkaisun tila" };
+
 
 
             // Ensimmäisen sarakkeen nimi (organisaation koodi) saa olla joku näistä kolmesta
@@ -315,12 +384,14 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                 // Jos amk
                 if ( OnkoAMK(getOrganisaatioKoodi()) ) {
 
-                    CSVSarakkeet = CSVSarakkeet2016_amk;                    
+                    CSVSarakkeet = CSVSarakkeet2016_amk;
+                    CSVSarakkeet_utf_vaarin = CSVSarakkeet2016_utf_vaarin_amk;
                 }
                 // Jos YO tai Sairaala - Tutkimuslaitos
                 if (OnkoSairaalaTutkimus(getOrganisaatioKoodi()) || OnkoYO(getOrganisaatioKoodi()))
 	            {
                     CSVSarakkeet = CSVSarakkeet2016;
+                    CSVSarakkeet_utf_vaarin = CSVSarakkeet2016_utf_vaarin_yo;
                 }    
                 
             }
@@ -812,6 +883,35 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
         }
 
 
+        // Poista viimeiset puolipisteet kentän loppupäästä
+        private string PoistaViimeisetPuolipisteet(string arvo)
+        {
+            int poistaLen = 0;
+
+            for (int i = arvo.Length - 1; i >= 0; i--)
+            {
+                char merkki = arvo[i];
+
+                // Jos on puolipisteitä
+                if ( merkki == ';' )    {
+                        poistaLen++;
+                }
+                else                    {
+                        break;
+                }
+            }
+            
+
+            if (poistaLen > 0)   {
+                
+                return arvo.Substring(0, arvo.Length - poistaLen);
+            }
+
+            return arvo;
+        }
+
+
+
         // Tarkistetaan Orcidit
         private bool TarkistaORCIDArvot(string orcid_str_arvo)
         {
@@ -849,7 +949,14 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
         {
             string doi = doi_str.Trim();
 		
-			string pattern = @"\b(10[.][0-9]{4,}(?:[.][0-9]+)*/(?:(?!['&\'<>])\S)+)\b";	
+            // Testattu eri säännöllisiä lausekkeita
+
+			// string pattern = @"\b(10[.][0-9]{4,}(?:[.][0-9]+)*/(?:(?!['&\'<>])\S)+)\b";
+
+            // string pattern = @"\b(10[.][0-9]{4,}(?:[.][0-9]+)*/(?:(?![%'#? ])\S)+)\b";
+            
+            string pattern = @"\b10\.(\d+\.*)+[\/](([^\s\.])+\.*)+\b";
+
 			
             bool val = false;
 
@@ -929,7 +1036,7 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
             }
             else
             {
-                setVuosi(2015); // default vuosi
+                setVuosi(2016); // default vuosi
             }
 
             string s2 = LahdeDataGridView.Rows[1].Cells[0].Value.ToString();  // Mikä organisaatiokoodi
@@ -945,7 +1052,7 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
         }
 
-        // XML elementtien mukaiset sarakkeet
+        // XML elementtien mukaiset sarakkeet skeeman mukaisessa järjestyksessä. Pitää olla sama datagrid indeksointi ja elementtien järjestys XML muodostaessa
         private void DataGridXMLSarakkeet(DataGridView dgv)
         {
             DataGridViewTextBoxColumn col = null;
@@ -957,7 +1064,7 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
             string[] elements2015 = { "OrganisaatioTunnus", "IlmoitusVuosi", "JulkaisunTunnus", "JulkaisunTilaKoodi", "JulkaisunOrgTunnus", "YksikkoKoodi", "JulkaisuVuosi", "JulkaisunNimi", "TekijatiedotTeksti", "TekijoidenLkm", "SivunumeroTeksti", "Artikkelinumero", "AvainsanaTeksti", "ISBN", "JufoTunnus", "JufoLuokkaKoodi", "JulkaisumaaKoodi", "LehdenNimi", "ISSN", "VolyymiTeksti", "LehdenNumeroTeksti", "KonferenssinNimi", "KustantajanNimi", "KustannuspaikkaTeksti", "EmojulkaisunNimi", "EmojulkaisunToimittajatTeksti", "JulkaisutyyppiKoodi", "TieteenalaKoodi", "KoulutusalaKoodi", "YhteisjulkaisuKVKytkin", "YhteisjulkaisuSHPKytkin", "YhteisjulkaisuTutkimuslaitosKytkin", "YhteisjulkaisuMuuKytkin", "JulkaisunKansainvalisyysKytkin", "JulkaisunKieliKoodi", "AvoinSaatavuusKoodi", "EVOjulkaisuKytkin", "DOI", "PysyvaOsoiteTeksti", "LahdetietokannanTunnus", "Sukunimi", "Etunimet", "YksikkoKoodi2", "ORCID", "HankenumeroTeksti", "RahoittajaOrgTunnus" };
 
-            string[] elements2016 = { "OrganisaatioTunnus", "IlmoitusVuosi", "JulkaisunTunnus", "JulkaisunTilaKoodi", "JulkaisunOrgTunnus", "YksikkoKoodi", "JulkaisuVuosi", "JulkaisunNimi", "TekijatiedotTeksti", "TekijoidenLkm", "SivunumeroTeksti", "Artikkelinumero", "AvainsanaTeksti", "ISBN", "JufoTunnus", "JufoLuokkaKoodi", "JulkaisumaaKoodi", "LehdenNimi", "ISSN", "VolyymiTeksti", "LehdenNumeroTeksti", "KonferenssinNimi", "KustantajanNimi", "KustannuspaikkaTeksti", "EmojulkaisunNimi", "EmojulkaisunToimittajatTeksti", "JulkaisutyyppiKoodi", "TieteenalaKoodi", "KoulutusalaKoodi", "YhteisjulkaisuKVKytkin", "YhteisjulkaisuSHPKytkin", "YhteisjulkaisuTutkimuslaitosKytkin", "YhteisjulkaisuMuuKytkin", "JulkaisunKansainvalisyysKytkin", "JulkaisunKieliKoodi", "AvoinSaatavuusKoodi", "EVOjulkaisuKytkin", "DOI", "PysyvaOsoiteTeksti", "LahdetietokannanTunnus", "Sukunimi", "Etunimet", "YksikkoKoodi2", "RinnakkaistallennettuKytkin", "RinnakkaistallennusOsoiteTeksti", "ORCID" };
+            string[] elements2016 = { "OrganisaatioTunnus", "IlmoitusVuosi", "JulkaisunTunnus", "JulkaisunTilaKoodi", "JulkaisunOrgTunnus", "YksikkoKoodi", "JulkaisuVuosi", "JulkaisunNimi", "TekijatiedotTeksti", "TekijoidenLkm", "SivunumeroTeksti", "Artikkelinumero", "AvainsanaTeksti", "ISBN", "JufoTunnus", "JufoLuokkaKoodi", "JulkaisumaaKoodi", "LehdenNimi", "ISSN", "VolyymiTeksti", "LehdenNumeroTeksti", "KonferenssinNimi", "KustantajanNimi", "KustannuspaikkaTeksti", "EmojulkaisunNimi", "EmojulkaisunToimittajatTeksti", "JulkaisutyyppiKoodi", "TieteenalaKoodi", "KoulutusalaKoodi", "YhteisjulkaisuKVKytkin", "JulkaisunKansainvalisyysKytkin", "JulkaisunKieliKoodi", "AvoinSaatavuusKoodi", "YhteisjulkaisuYritysKytkin", "RinnakkaistallennettuKytkin", "RinnakkaistallennusOsoiteTeksti", "DOI", "PysyvaOsoiteTeksti", "LahdetietokannanTunnus", "Sukunimi", "Etunimet", "YksikkoKoodi2", "ORCID" };
 
             if (getVuosi() == 2015)
             {
@@ -984,10 +1091,9 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
             catch (Exception ex)
             {
                 MessageBox.Show("Virhe datagrid taulukossa: " + ex.Message);
-
             }
-
         }
+
 
         // Onko sallittu Julkaisutyyppi koodi 
         private Boolean CheckJulkaisuTyyppiKoodi(string arvo)
@@ -1629,14 +1735,14 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
         }
         
 
-        // XML elementtien mukaiset sarakkeet indeksin mukaan
+        // XML elementtien mukaiset sarakkeet indeksin mukaan, skeeman mukaisessa järjestyksessä
         private string PalautaXMLElementtiNimi(int numero)
         {
             string[] elements = { "OrganisaatioTunnus", "IlmoitusVuosi", "JulkaisunTunnus", "JulkaisunTilaKoodi", "JulkaisunOrgTunnus", "YksikkoKoodi", "JulkaisuVuosi", "JulkaisunNimi", "TekijatiedotTeksti", "TekijoidenLkm", "SivunumeroTeksti", "Artikkelinumero", "AvainsanaTeksti", "ISBN", "JufoTunnus", "JufoLuokkaKoodi", "JulkaisumaaKoodi", "LehdenNimi", "ISSN", "VolyymiTeksti", "LehdenNumeroTeksti", "KonferenssinNimi", "KustantajanNimi", "KustannuspaikkaTeksti", "EmojulkaisunNimi", "EmojulkaisunToimittajatTeksti", "JulkaisutyyppiKoodi", "TieteenalaKoodi", "KoulutusalaKoodi", "YhteisjulkaisuKVKytkin", "YhteisjulkaisuSHPKytkin", "YhteisjulkaisuTutkimuslaitosKytkin", "YhteisjulkaisuMuuKytkin", "JulkaisunKansainvalisyysKytkin", "JulkaisunKieliKoodi", "AvoinSaatavuusKoodi", "EVOjulkaisuKytkin", "DOI", "PysyvaOsoiteTeksti", "LahdetietokannanTunnus", "Sukunimi", "Etunimet", "YksikkoKoodi2", "ORCID", "HankenumeroTeksti", "RahoittajaOrgTunnus" };
 
             string[] elements2015 = { "OrganisaatioTunnus", "IlmoitusVuosi", "JulkaisunTunnus", "JulkaisunTilaKoodi", "JulkaisunOrgTunnus", "YksikkoKoodi", "JulkaisuVuosi", "JulkaisunNimi", "TekijatiedotTeksti", "TekijoidenLkm", "SivunumeroTeksti", "Artikkelinumero", "AvainsanaTeksti", "ISBN", "JufoTunnus", "JufoLuokkaKoodi", "JulkaisumaaKoodi", "LehdenNimi", "ISSN", "VolyymiTeksti", "LehdenNumeroTeksti", "KonferenssinNimi", "KustantajanNimi", "KustannuspaikkaTeksti", "EmojulkaisunNimi", "EmojulkaisunToimittajatTeksti", "JulkaisutyyppiKoodi", "TieteenalaKoodi", "KoulutusalaKoodi", "YhteisjulkaisuKVKytkin", "YhteisjulkaisuSHPKytkin", "YhteisjulkaisuTutkimuslaitosKytkin", "YhteisjulkaisuMuuKytkin", "JulkaisunKansainvalisyysKytkin", "JulkaisunKieliKoodi", "AvoinSaatavuusKoodi", "EVOjulkaisuKytkin", "DOI", "PysyvaOsoiteTeksti", "LahdetietokannanTunnus", "Sukunimi", "Etunimet", "YksikkoKoodi2", "ORCID", "HankenumeroTeksti", "RahoittajaOrgTunnus" };
 
-            string[] elements2016 = { "OrganisaatioTunnus", "IlmoitusVuosi", "JulkaisunTunnus", "JulkaisunTilaKoodi", "JulkaisunOrgTunnus", "YksikkoKoodi", "JulkaisuVuosi", "JulkaisunNimi", "TekijatiedotTeksti", "TekijoidenLkm", "SivunumeroTeksti", "Artikkelinumero", "AvainsanaTeksti", "ISBN", "JufoTunnus", "JufoLuokkaKoodi", "JulkaisumaaKoodi", "LehdenNimi", "ISSN", "VolyymiTeksti", "LehdenNumeroTeksti", "KonferenssinNimi", "KustantajanNimi", "KustannuspaikkaTeksti", "EmojulkaisunNimi", "EmojulkaisunToimittajatTeksti", "JulkaisutyyppiKoodi", "TieteenalaKoodi", "KoulutusalaKoodi", "YhteisjulkaisuKVKytkin", "YhteisjulkaisuSHPKytkin", "YhteisjulkaisuTutkimuslaitosKytkin", "YhteisjulkaisuMuuKytkin", "JulkaisunKansainvalisyysKytkin", "JulkaisunKieliKoodi", "AvoinSaatavuusKoodi", "EVOjulkaisuKytkin", "DOI", "PysyvaOsoiteTeksti", "LahdetietokannanTunnus", "Sukunimi", "Etunimet", "YksikkoKoodi2", "RinnakkaistallennettuKytkin", "Rinnakkaistallennettu", "ORCID" };
+            string[] elements2016 = { "OrganisaatioTunnus", "IlmoitusVuosi", "JulkaisunTunnus", "JulkaisunTilaKoodi", "JulkaisunOrgTunnus", "YksikkoKoodi", "JulkaisuVuosi", "JulkaisunNimi", "TekijatiedotTeksti", "TekijoidenLkm", "SivunumeroTeksti", "Artikkelinumero", "AvainsanaTeksti", "ISBN", "JufoTunnus", "JufoLuokkaKoodi", "JulkaisumaaKoodi", "LehdenNimi", "ISSN", "VolyymiTeksti", "LehdenNumeroTeksti", "KonferenssinNimi", "KustantajanNimi", "KustannuspaikkaTeksti", "EmojulkaisunNimi", "EmojulkaisunToimittajatTeksti", "JulkaisutyyppiKoodi", "TieteenalaKoodi", "KoulutusalaKoodi", "YhteisjulkaisuKVKytkin", "JulkaisunKansainvalisyysKytkin", "JulkaisunKieliKoodi", "AvoinSaatavuusKoodi", "YhteisjulkaisuYritysKytkin", "RinnakkaistallennettuKytkin", "RinnakkaistallennusOsoiteTeksti", "DOI", "PysyvaOsoiteTeksti", "LahdetietokannanTunnus", "Sukunimi", "Etunimet", "YksikkoKoodi2", "ORCID" };
 
             if (getVuosi() == 2015)
             {
@@ -1832,15 +1938,15 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
                             }
 
-                            // Nyt ajankohtainen ilmoitusvuosi. Tärkeätä että nyt nämä mäppäykset menevät oikein!
+                            // Ilmoitusvuosi 2015. Tärkeää että nämä mäppäykset menevät oikein!
                             if (vuosiV == 2015)
                             {
 
                                 cellValues2[0] = cellValues1[0]; // korkeakoulu Organisaatio
                                 cellValues2[1] = cellValues1[1]; // Ilmoitusvuosi
                                 cellValues2[2] = cellValues1[63]; // Julkaisun id tunnus
-                                
-                                cellValues2[3] = 2; // JulkaisunTilaKoodi
+
+                                cellValues2[3] = 2; // JulkaisunTilaKoodi, vakioarvo 2 2015 vuoden csv-mallitiedostoa käytettäessä
 
                                 cellValues2[4] = cellValues1[63]; // Julkaisun Organisaatiotunnus
 
@@ -1925,43 +2031,58 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
                             }
 
-                            // Keskeneräinen "ensi" raportointivuosi 2017
+
+
+
+                            // 2016  raportointivuosi 2017
+                            // - 6 koska koulutus ala on poistettu
                             if (vuosiV == 2016)
                             {
-                                cellValues2[0] = cellValues1[0]; // korkeakoulu Organisaatio
-                                cellValues2[1] = cellValues1[1]; // Ilmoitusvuosi
-                                cellValues2[2] = cellValues1[61]; // Julkaisun id tunnus
+                                cellValues2[0] = cellValues1[0];    // korkeakoulu Organisaatio
+                                cellValues2[1] = cellValues1[1];    // Ilmoitusvuosi
+                                cellValues2[2] = cellValues1[55];   // Julkaisun id tunnus
 
-                                cellValues2[4] = cellValues1[61]; // Julkaisun Organisaatiotunnus
+                                if (cellValues1[61] == null || cellValues1[61].ToString().Trim().Length == 0)
+                                {
+                                    cellValues2[3] = 2;                 // JulkaisunTilaKoodi, vakioarvo 2 2016 csv-mallitiedostoa käytettäessä
+                                }
+                                else
+                                {
+                                    cellValues2[3] = cellValues1[61];
+                                }
 
-                                cellValues2[5] = cellValues1[16]; // Organisaation alayksikkö
+
+                                cellValues2[4] = cellValues1[55];   // Julkaisun Organisaatiotunnus
+                                cellValues2[5] = cellValues1[10];   // Organisaation alayksikkö
 
                                 for (int k = 1; k < 20; k++)
                                 {
-                                    if (cellValues1[16 + k] != null)
+                                    if (cellValues1[10 + k] != null)
                                     {
-                                        cellValues2[5] = cellValues2[5] + ";" + cellValues1[16 + k];
+                                        cellValues2[5] = cellValues2[5] + ";" + cellValues1[10 + k];
                                     }
                                 }
 
-                                cellValues2[6] = cellValues1[41]; // Julkaisuvuosi
-                                cellValues2[7] = cellValues1[40]; // Julkaisun nimi
-                                cellValues2[8] = cellValues1[36]; // Julkaisun tekijät
-                                cellValues2[9] = cellValues1[37]; // Julkaisun tekijöiden lukumäärä
-                                cellValues2[10] = cellValues1[44]; // Sivut
-                                cellValues2[11] = cellValues1[45]; // Artikkelinumero
-                                cellValues2[13] = cellValues1[49]; // ISBN
-                                cellValues2[14] = cellValues1[60]; // JufoTunnus - Julkaisun julkaisukanava JUFO ID
-                                //cellValues2[15] = cellValues1[64]; // Julkaisun julkaisufoorumiluokitus ID!!
-                                cellValues2[16] = cellValues1[56]; // Julkaisumaa
-                                cellValues2[17] = cellValues1[47]; // Lehden/sarjan nimi
-                                cellValues2[18] = cellValues1[48]; // ISSN
-                                cellValues2[19] = cellValues1[42]; // Volyymi
-                                cellValues2[20] = cellValues1[43]; // Numero
-                                cellValues2[22] = cellValues1[52]; // Kustantaja
-                                cellValues2[23] = cellValues1[53]; // Julkaisun kustannuspaikka
-                                cellValues2[24] = cellValues1[50]; // Emojulkaisun nimi
-                                cellValues2[25] = cellValues1[51]; // Emojulkaisun toimittajat
+                                cellValues2[6] = cellValues1[35]; // Julkaisuvuosi
+                                cellValues2[7] = cellValues1[34]; // Julkaisun nimi
+                                cellValues2[8] = cellValues1[30]; // Julkaisun tekijät
+                                cellValues2[9] = cellValues1[31]; // Julkaisun tekijöiden lukumäärä
+                                cellValues2[10] = cellValues1[38]; // Sivut
+                                cellValues2[11] = cellValues1[39]; // Artikkelinumero
+                                cellValues2[12] = cellValues1[57]; // Avain sanat
+                                cellValues2[13] = cellValues1[43]; // ISBN
+                                cellValues2[14] = cellValues1[54]; // JufoTunnus - Julkaisun julkaisukanava JUFO ID
+                                //cellValues2[15] = null; // Julkaisun julkaisufoorumiluokitus ID!!
+                                cellValues2[16] = cellValues1[48]; // Julkaisumaa
+                                cellValues2[17] = cellValues1[41]; // Lehden/sarjan nimi
+                                cellValues2[18] = cellValues1[42]; // ISSN
+                                cellValues2[19] = cellValues1[36]; // Volyymi
+                                cellValues2[20] = cellValues1[37]; // Numero
+                                cellValues2[21] = cellValues1[56];  // Konferenssin vakiintunut nimi
+                                cellValues2[22] = cellValues1[46]; // Kustantaja
+                                cellValues2[23] = cellValues1[47]; // Julkaisun kustannuspaikka
+                                cellValues2[24] = cellValues1[44]; // Emojulkaisun nimi
+                                cellValues2[25] = cellValues1[45]; // Emojulkaisun toimittajat
                                 cellValues2[26] = cellValues1[2]; // Julkaisutyyppi 
 
                                 cellValues2[27] = cellValues1[3]; // I -VI Tieteenala
@@ -1974,50 +2095,50 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                                     }
                                 }
 
-                                cellValues2[28] = cellValues1[9]; // I - VI Koulutusala
+                                //cellValues2[28] = cellValues1[9]; // I - VI Koulutusala
 
-                                for (int k = 1; k < 6; k++)
-                                {
-                                    if (cellValues1[9 + k] != null)
-                                    {
-                                        cellValues2[28] = cellValues2[28] + ";" + cellValues1[9 + k];
-                                    }
-                                }
+                                cellValues2[28] = null;
 
-                                cellValues2[29] = cellValues1[38]; // Kansainvälinen yhteisjulkaisu
-                                cellValues2[30] = cellValues1[39]; // Yhteisjulkaisu yrityksen kanssa
+                                //for (int k = 1; k < 6; k++)
+                                //{
+                                //    if (cellValues1[9 + k] != null)
+                                //    {
+                                //        cellValues2[28] = cellValues2[28] + ";" + cellValues1[9 + k];
+                                //    }
+                                //}
 
-                                cellValues2[31] = cellValues1[40]; // Valtion sektoritutkimuslaitos, yhteisjulkaisu
-                                cellValues2[32] = cellValues1[41]; // Muu kotimainen tutkimusorganisaatio, yhteisjulkaisu
-                                cellValues2[33] = cellValues1[55]; // Julkaisun kansainvälisyys
-                                cellValues2[34] = cellValues1[46]; // Julkaisun kieli
-                                cellValues2[35] = cellValues1[58]; // Avoin saatavuus
-                                //cellValues2[36] = cellValues1[62]; // EVO-julkaisu
-                                cellValues2[37] = cellValues1[56]; // DOI-tunniste
-                                cellValues2[38] = cellValues1[57]; // Pysyvä verkko-osoite
-                                cellValues2[39] = cellValues1[59]; // Lähdetietokannan koodi
-                                cellValues2[40] = cellValues1[15]; // Organisaation tekijät
+                                cellValues2[29] = cellValues1[32]; // Kansainvälinen yhteisjulkaisu
+                                cellValues2[30] = cellValues1[49]; // Julkaisun kansainvälisyys // ent Valtion sektoritutkimuslaitos, yhteisjulkaisu
+                                cellValues2[31] = cellValues1[40]; // Julkaisun kieli // Ent Muu kotimainen tutkimusorganisaatio, yhteisjulkaisu
+                                cellValues2[32] = cellValues1[52]; // Avoin saatavuus
 
-                                cellValues2[42] = cellValues1[16]; // Organisaation alayksikkö
+                                cellValues2[33] = cellValues1[33]; // Yhteisjulkaisu yrityksen kanssa "YhteisjulkaisuYritysKytkin"
+
+                                // Julkaisu rinnakkaistallennettu, Rinnakkaistallennetun version verkko-osoite
+                                cellValues2[34] = cellValues1[58]; // Julkaisu rinnakkaistallennettu
+                                cellValues2[35] = cellValues1[59]; // Rinnakkaistallennetun version verkko-osoite
+
+                                cellValues2[36] = cellValues1[50]; // DOI-tunniste
+                                cellValues2[37] = cellValues1[51]; // Pysyvä verkko-osoite
+                                cellValues2[38] = cellValues1[53]; // Lähdetietokannan koodi
+
+                                cellValues2[39] = cellValues1[9]; // Organisaation tekijät
+                                cellValues2[40] = null;
+                                cellValues2[41] = cellValues1[10]; // Organisaation alayksikkö
 
                                 for (int k = 1; k < 20; k++)
                                 {
-                                    if (cellValues1[16 + k] != null)
+                                    if (cellValues1[10 + k] != null)
                                     {
-                                        cellValues2[42] = cellValues2[42] + ";" + cellValues1[16 + k];
+                                        cellValues2[41] = cellValues2[41] + ";" + cellValues1[10 + k];
                                     }
                                 }
+                                //  ORCID    
+                                cellValues2[42] = cellValues1[60]; // ORCID                        
 
-                                cellValues2[12] = cellValues1[63]; // Avain sanat
-                                cellValues2[21] = cellValues1[62];  // Konferenssin vakiintunut nimi
+                            } // 2016 loppuu... Pysyköhän kasassa?
 
-                                // Julkaisu rinnakkaistallennettu, Rinnakkaistallennetun version verkko-osoite, ORCID
 
-                                cellValues2[43] = cellValues1[64]; // Julkaisu rinnakkaistallennettu
-                                cellValues2[44] = cellValues1[65]; // Rinnakkaistallennetun version verkko-osoite
-                                cellValues2[45] = cellValues1[66]; // ORCID                        
-
-                            } // 2016 loppuu...
 
                         }
 
@@ -2072,13 +2193,13 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
         {
             LahdeDataGridView.Rows.Clear();
 
-            LahdeDataGridView.ColumnCount = 80; // Note to myself Dynaamiseksi kiitos!  2013: i < 46  2014 => i < 66
+            LahdeDataGridView.ColumnCount = 80; // Note to myself Dynaamiseksi kiitos!  2013: i < 46  2014 => i < 66, 2016  62 max
 
             int maximi = 0;
 
             if (getVuosi() == 2016)
             {
-                maximi = 67;
+                maximi = 62;    // Voi että!
             }
 
             if ( getVuosi() == 2015 ) 
@@ -2135,11 +2256,16 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
         }
 
-        // Huom! HaeExcelTyokirjat ei vielä käytössä, aloitettu tulevaisuutta varten, seuraavaan versioon jos csv muodostaminen osoittautuu liian hankalaksi
-        // Ja myös UTF8 merkistöjen kanssa haastavaa
+        // HaeExcelTyokirjat ei vielä käytössä, mutta aloitettu tulevaisuutta varten, seuraavaan versioon jos csv muodostaminen osoittautuu liian hankalaksi
+        // Ja myös UTF8 merkistöjen kanssa haastavaa joku autoconvert
         // Metodi jolla luetaan työkirjan (worksheet) nimi -- tarvitaan jos luetaan OLEDB kautta Excelistä dataa
         public string[] HaeExcelTyokirjat(string excelTiedosto)
         {
+            MessageBox.Show(excelTiedosto, "HaeExcelTyokirjat");
+
+            //var currentDirectory = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+            //string tiedosto = Path.Combine(currentDirectory, Path.GetFileName(excelTiedosto));
+
             DataTable datataulu = null;
 
             OleDbConnection yhteys = new OleDbConnection(@"Provider=Microsoft.Jet.OLEDB.4.0;Data Source=" + excelTiedosto + ";Extended Properties=\"Excel 8.0;HDR=Yes;IMEX=1\";");
@@ -2164,6 +2290,10 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
             }
             return excelTyokirjat;
         }
+
+
+
+
 
         // Tässä luetaan lähdetiedosto (csv) jostakin ja viedään sen tiedot datagridiin
         private void LueLahdeTiedostoButton_Click(object sender, EventArgs e)
@@ -2281,12 +2411,20 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
                                         // Muutettu  if (getVuosi() >= 2014) 1.3.2016
 
+                                        //MessageBox.Show(vuosiIlmo.ToString(), "vuosiIlmo");
+
                                         if (getVuosi() == vuosiIlmo)
                                         {
-                                            if (num >= 66)
+                                            if (getVuosi() <= 2015 && num >= 66)
                                             {
                                                 num_ok = true;
                                             }
+
+                                            if (getVuosi() == 2016 && num == 62)
+                                            {
+                                                num_ok = true;
+                                            }
+
                                         }
                                         else
                                         {
@@ -2501,9 +2639,8 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                             if (dataRow.ItemArray[j] == DBNull.Value)
                                     dataRow.SetField(j, string.Empty);
                     
-                            string arvo = dataRow.ItemArray[j].ToString().Trim(); // Elementin arvo 
-
-
+                            string arvo = dataRow.ItemArray[j].ToString().Trim(); // Elementin arvo                            
+                            
                             if ( elementti.Equals("JulkaisunNimi") && arvo.Trim().Length == 0)
                             {
                                 validiElementti = false;
@@ -2635,42 +2772,61 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                                 }
                                 writer.WriteEndElement(); // Avainsanat end          
                             }
- 
-                    
+
+
                             if (elementti.Equals("RinnakkaistallennettuKytkin"))
                             {
                                 validiElementti = false; // Ei saa lopussa kirjoittaa uudelleen
-						
-						        string kytky_vipu = "0";
-						
-						        string kytkystr = arvo.Trim();
-						
-						        if ( kytkystr.Equals("Kyllä") )	{
-						
-							        kytky_vipu = "1";
-						        }
-						        else	{
-                                    kytky_vipu = "0";
-						        }						
 
-                                writer.WriteElementString("RinnakkaistallennettuKytkin", kytky_vipu);				
+                                //string kytky_vipu = "0";
 
-					        }	
-					
-					
-					        if (elementti.Equals("Rinnakkaistallennettu"))
+                                string kytkystr = arvo.Trim();
+
+                                writer.WriteElementString("RinnakkaistallennettuKytkin", kytkystr);
+
+                                //if (kytkystr.Equals("Kyllä"))
+                                //{
+
+                                //    kytky_vipu = "1";
+                                //}
+                                //else
+                                //{
+                                //    kytky_vipu = "0";
+                                //}
+
+                                //writer.WriteElementString("RinnakkaistallennettuKytkin", kytky_vipu);
+
+                            }
+
+
+                            if (elementti.Equals("RinnakkaistallennusOsoiteTeksti"))
                             {
                                 validiElementti = false; // Ei saa lopussa kirjoittaa uudelleen
 
-                                writer.WriteStartElement("Rinnakkaistallennettu"); // Rinnakkaistallennettu alkaa                                                    
-                        
-                                    string osoite = arvo.Trim();
+                                if (arvo.Trim().Length > 0)
+                                {
+                                    writer.WriteStartElement("Rinnakkaistallennettu"); // Rinnakkaistallennettu alkaa                                                    
 
-                                    writer.WriteElementString("RinnakkaistallennusOsoiteTeksti", osoite);
-                        
-                                writer.WriteEndElement(); // Rinnakkaistallennettu end          
+                                        string osoite = arvo.Trim();
+                                        writer.WriteElementString("RinnakkaistallennusOsoiteTeksti", osoite);
+
+                                    writer.WriteEndElement(); // Rinnakkaistallennettu end          
+                                }
                             }
  
+                            //// DOI
+                            //if ( elementti.Equals("DOI") && arvo.Trim().Length > 0 )
+                            //{
+                            //    validiElementti = false; // Ei saa lopussa kirjoittaa uudelleen
+
+                            //    // Vain jos on jotain kirjoitettavaa
+                            //    if (arvo.Trim().Length > 0)
+                            //    {
+                            //        writer.WriteElementString("DOI", arvo);
+                            //    }
+                            //}                                                     
+
+
 
                             // Tulee myöhemmin <tekija>:n sisällä
                             if (elementti.Equals("ORCID"))
@@ -2683,7 +2839,7 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                             // Tulee myöhemmin <tekija>:n sisällä
                             if (elementti.Equals("Etunimet"))
                             { 
-                                    validiElementti = false;
+                                validiElementti = false;
                             }
 
                             // Kaikki nimet on aluksi Sukunimi kentässä
@@ -2699,19 +2855,33 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
                                     int n = 0;
 
+                                    int max_elements = sukunimetArray.Length;
+                                    int nimia_num = 0;
+
                                     foreach (string snimi in sukunimetArray)
                                     {
                                         string nimi = snimi.Trim();
                                         string suku = "";
                                         string etu = "";
 
+                                        nimia_num++;
+
+                                        // Jos on todella paljon porukkaa ilmoitetaan asiasta
+                                        if ( nimia_num > 20 )
+                                        {
+                                            
+                                            errorTextBox.AppendText("Nimiä > " + nimia_num.ToString() + " yht :" + max_elements.ToString() + "\n\r\n\r");
+
+                                            
+                                        }
+
+
                                         writer.WriteStartElement("Tekija"); // Tekijä alkaa
 
                                         // Vain jos on jotain
                                         if ( nimi.Length > 0) {
 
-                                         
-
+                                            
                                             // Jos on sukunimi, etunimi
                                             if (nimi.Contains(","))
                                             {
@@ -2727,6 +2897,10 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                                                 writer.WriteElementString("Sukunimi", suku);
                                                 // Ei ole etunimeä			
                                             }
+
+                                            
+
+
 
 
                                             // Yksikkökoodia
@@ -2752,32 +2926,36 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
                                             if (validisisaElementti)
                                             {
-                                                // Vain jos on yksikkö
-                                                if (sisaArvo.Trim().Length > 0 && yksikotArray[n].Trim().Length > 0 )
-                                                {
-                                                    writer.WriteStartElement("Yksikot"); // Yksikot alkaa
-                                                }        
+                                                // Yksikköjä saa olla max 20
+                                                if (n < 20) { 
+                                                
+                                                    // Vain jos on yksikkö
+                                                        if (sisaArvo.Trim().Length > 0 && yksikotArray[n].Trim().Length > 0 )
+                                                        {
+                                                            writer.WriteStartElement("Yksikot"); // Yksikot alkaa
+                                                        }        
 
-                                                // Jos on useampi, enemmän kuin yksi
-                                                if (yksikotArray.Length > 1)
-                                                {
-                                                    if (yksikotArray[n].Trim().Length > 0)
-                                                    { 
-                                                        writer.WriteElementString(sisaElementti_yksikko, yksikotArray[n]); // Yksikkökoodi
-                                                    }                                            
-                                                }
-                                                else
-                                                {
-                                                    if (sisaArvo.Trim().Length > 0)
-                                                    {
-                                                        writer.WriteElementString(sisaElementti_yksikko, sisaArvo); // Yksikkökoodi
-                                                    }
-                                                }
+                                                        // Jos on useampi, enemmän kuin yksi
+                                                        if (yksikotArray.Length > 1)
+                                                        {
+                                                            if (yksikotArray[n].Trim().Length > 0)
+                                                            { 
+                                                                writer.WriteElementString(sisaElementti_yksikko, yksikotArray[n]); // Yksikkökoodi
+                                                            }                                            
+                                                        }
+                                                        else
+                                                        {
+                                                            if (sisaArvo.Trim().Length > 0)
+                                                            {
+                                                                writer.WriteElementString(sisaElementti_yksikko, sisaArvo); // Yksikkökoodi
+                                                            }
+                                                        }
 
-                                                // Vain jos on yksikkö muistetaan sulkea elementti
-                                                if (sisaArvo.Trim().Length > 0 && yksikotArray[n].Trim().Length > 0 )
-                                                {
-                                                    writer.WriteEndElement(); // Yksikot end
+                                                        // Vain jos on yksikkö muistetaan sulkea elementti
+                                                        if (sisaArvo.Trim().Length > 0 && yksikotArray[n].Trim().Length > 0 )
+                                                        {
+                                                            writer.WriteEndElement(); // Yksikot end
+                                                        }
                                                 }
 
                                             }  
@@ -2828,17 +3006,20 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                                     writer.WriteEndElement(); // Tekijät end                                               
 
                                 }
-                                else
-                                {
+                                
 
-                                if (validiElementti) {
+
+
+                               // Muu validi elementti? 
+                               if (validiElementti) {
 
                                     if ( arvo.Trim().Length > 0) { 
                                         writer.WriteElementString(elementti, arvo); // eli joku muu elementti
                                     }
-                                }  
 
-                            }   
+                                }
+
+                               
                         }
 
                         writer.WriteEndElement();
@@ -3282,14 +3463,12 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
             else
             {
                 return "";
-            }
-                
+            }                
 
         }
+        
 
-
-
-
+        // ---- TARKISTUKSET alkaa aina kun painaa Validoi -----
 
         // Validoidaan dataa ennen XML muodostusta
         // Tarkistukset indeksoituna Grid indeksin mukaan
@@ -3311,6 +3490,31 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
             nollaGridVarit(); // Nollaa väritykset
             
             errorTextBox.Clear(); // Tyhjennä errorboxi
+
+            //DataSet virheSetti = new DataSet("VirheSetti");
+            //virheSetti.Tables.Add(virheTaulukko);
+
+            string sarakeNimi;
+
+            virheTaulukko.Columns.Clear();
+
+            sarakeNimi = "VIRHE";
+            virheTaulukko.Columns.Add(sarakeNimi, typeof(String));
+
+            sarakeNimi = "julkaisuorgtunnus";
+            virheTaulukko.Columns.Add(sarakeNimi, typeof(String));
+
+            sarakeNimi = "rivi";
+            virheTaulukko.Columns.Add(sarakeNimi, typeof(String));
+
+            sarakeNimi = "viesti";
+            virheTaulukko.Columns.Add(sarakeNimi, typeof(String));
+
+            sarakeNimi = "tieto";
+            virheTaulukko.Columns.Add(sarakeNimi, typeof(String));
+
+            // Virhelistaa tarkistuscsv:tä varten
+            object[] virheLista = new object[5];           
 
             DataGridViewCellStyle rowStyle;           
             
@@ -3358,8 +3562,8 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
             // 	29	 YhteisjulkaisuKVKytkin
             // 	30	 YhteisjulkaisuSHPKytkin
             // 	31	 YhteisjulkaisuTutkimuslaitosKytkin
-            // 	32	 YhteisjulkaisuMuuKytkin
-            // 	33	 JulkaisunKansainvalisyysKytkin
+            // 	32	 YhteisjulkaisuMuuKytkin            
+            // 	33	 JulkaisunKansainvalisyysKytkin            
             // 	34	 JulkaisunKieliKoodi
             // 	35	 AvoinSaatavuusKoodi
             // 	36	 EVOjulkaisuKytkin (Ei käytössä 2015!)
@@ -3373,6 +3577,58 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
             // 	44	 HankenumeroTeksti
             // 	45	 RahoittajaOrgTunnus
 
+
+            // 2016
+            // indeksi  kenttä  (vuoden 2016 osalta)
+            // 	0	 OrganisaatioTunnus
+            // 	1	 IlmoitusVuosi
+            // 	2	 JulkaisunTunnus
+            // 	3	 JulkaisunTilaKoodi
+            // 	4	 JulkaisunOrgTunnus
+            // 	5	 YksikkoKoodi
+            // 	6	 JulkaisuVuosi
+            // 	7	 JulkaisunNimi
+            // 	8	 TekijatiedotTeksti
+            // 	9	 TekijoidenLkm
+            // 	10	 SivunumeroTeksti
+            // 	11	 Artikkelinumero
+            // 	12	 AvainsanaTeksti
+            // 	13	 ISBN
+            // 	14	 JufoTunnus
+            // 	15	 JufoLuokkaKoodi
+            // 	16	 JulkaisumaaKoodi
+            // 	17	 LehdenNimi
+            // 	18	 ISSN
+            // 	19	 VolyymiTeksti
+            // 	20	 LehdenNumeroTeksti
+            // 	21	 KonferenssinNimi
+            // 	22	 KustantajanNimi
+            // 	23	 KustannuspaikkaTeksti
+            // 	24	 EmojulkaisunNimi
+            // 	25	 EmojulkaisunToimittajatTeksti
+            // 	26	 JulkaisutyyppiKoodi
+            // 	27	 TieteenalaKoodi
+            // 	28	 KoulutusalaKoodi
+            // 	29	 YhteisjulkaisuKVKytkin
+
+            // 	33 => 30 !! 2016:	 JulkaisunKansainvalisyysKytkin          Entinen YhteisjulkaisuTutkimuslaitosKytkin Ei käytössä 2016   
+            // 	34 => 31 !! 2016:	 JulkaisunKieliKoodi            Entinen YhteisjulkaisuMuuKytkin  Ei käytössä 2016
+            // 	35 => 32 !! 2016:	 AvoinSaatavuusKoodi
+
+            //  33    !! 2016 YhteisjulkaisuYritysKytkin  Yhteisjulkaisu yrityksen kanssa Entinen YhteisjulkaisuSHPKytkin 2015
+
+            // 	43	=> 34 !! 2016: Julkaisu rinnakkaistallennettu
+            // 	44	=> 35 !! 2016: Rinnakkaistallennetun version verkko-osoite
+            
+            // 	36	 DOI
+            // 	37	 PysyvaOsoiteTeksti
+            // 	38	 LahdetietokannanTunnus
+            // 	39	 Sukunimi
+            // 	40	 Etunimet
+            // 	41	 YksikkoKoodi2
+            // 	42	 ORCID         
+                        
+
             // Tässä nyt mennään eikä meinata, koko taulukko läpi, rivi riviltä, sarake sarakkeelta ...
             foreach (DataGridViewRow rivi in XMLdataGridView.Rows)
             {
@@ -3381,7 +3637,7 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                     // Mitkä ovat pakolliset kentät ja mikä indeksi millekin tiedolle
 
                     // Muutettu että jos ei ole niin generoidaan organisaatio tunnus
-                    // organisaation nro + . 2015 + . juokseva numero + .csv
+                    // organisaation nro + . 2015 tai 2016 + . juokseva numero + .csv
                     // JulkaisunOrgTunnus (julkaisun organisaatiokohtainen ID) on pakollinen
                     if ((rivi.Cells[4] == null) || (rivi.Cells[4].Value.ToString().Length == 0))
                     {
@@ -3390,11 +3646,9 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                         {
                             String julkaisunorganisaatiotunnus = "";
 
-                            julkaisunorganisaatiotunnus = rivi.Cells[0].Value.ToString().Trim() + ".2015." + num.ToString() + ".csv";
+                            julkaisunorganisaatiotunnus = rivi.Cells[0].Value.ToString().Trim() + "." + vuosiIlmo.ToString() + " ." + num.ToString() + ".csv";
 
                             rivi.Cells[4].Value = julkaisunorganisaatiotunnus;
-
-
                         }
                         else
                         {
@@ -3404,6 +3658,8 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                             virheita += "Pakollinen tieto. Julkaisun organisaatio tunnus ei voi olla tyhjä, rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
                             virheIlmoitus2();
+
+                            RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Pakollinen tieto. Julkaisun organisaatio tunnus ei voi olla tyhjä ", rivi.Cells[4].Value.ToString()); 
 
                             dgvc[4].HeaderCell.Style.BackColor = Color.Red;
                             rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
@@ -3416,19 +3672,18 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
                     virhejulkaisuorgtunnus = " jultunnus: " + rivi.Cells[4].Value.ToString().Trim();
 
-                    // OrganisaatioTunnus, JulkaisunOrgTunnus, JulkaisuVuosi, JulkaisunNimi, TekijatiedotTeksti
-                    
+                    // OrganisaatioTunnus, JulkaisunOrgTunnus, JulkaisuVuosi, JulkaisunNimi, TekijatiedotTeksti                    
                     // OrganisaatioTunnus pakollinen
                     if ((rivi.Cells[0] == null) || (rivi.Cells[0].Value.ToString().Trim().Length == 0))
                     {                        
                         XMLdataGridView.Rows[num].Cells[0].Style.BackColor = Color.Red;
-                        TallennaXMLButton.Enabled = false;
-
-                        // virhejulkaisuorgtunnus = " jultunnus: " + rivi.Cells[4].Value.ToString();
+                        TallennaXMLButton.Enabled = false;                                               
 
                         virheita += "Pakollinen tieto. Organisaation tunnus ei voi olla tyhjä, rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
                         virheIlmoitus2();
+
+                        RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Pakollinen tieto. Organisaation tunnus ei voi olla tyhjä ", rivi.Cells[0].Value.ToString()); 
 
                         dgvc[0].HeaderCell.Style.BackColor = Color.Red;
                         rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
@@ -3443,9 +3698,7 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                         if (!(OnkoAMK(rivi.Cells[0].Value.ToString().Trim()) || OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()) || OnkoYO(rivi.Cells[0].Value.ToString().Trim())))
                         {
                             XMLdataGridView.Rows[num].Cells[0].Style.BackColor = Color.Red;
-                            TallennaXMLButton.Enabled = false;
-
-                            //virhejulkaisuorgtunnus = " jultunnus: " + rivi.Cells[4].Value.ToString();
+                            TallennaXMLButton.Enabled = false;                                                   
 
                             string etunolla_str = ".";
 
@@ -3457,6 +3710,8 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                             virheita += "Organisaatiokoodi " + rivi.Cells[0].Value.ToString() + " virheellinen rivillä " + (num + 1) + " " + etunolla_str + virhejulkaisuorgtunnus + "\n\r\n\r";
 
                             virheIlmoitus2();
+
+                            RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Organisaatiokoodi virheellinen ", rivi.Cells[0].Value.ToString()); 
 
                             dgvc[0].HeaderCell.Style.BackColor = Color.Red;
                             rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
@@ -3470,13 +3725,12 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                     {                        
                         XMLdataGridView.Rows[num].Cells[1].Style.BackColor = Color.Red;
                         TallennaXMLButton.Enabled = false;
-
-                        //virhejulkaisuorgtunnus = " jultunnus: " + rivi.Cells[4].Value.ToString();
-
-
+                                                
                         virheita += "Pakollinen tieto. Ilmoitusvuosi ei voi olla tyhjä, rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
                         virheIlmoitus2();
+
+                        RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Pakollinen tieto. Ilmoitusvuosi ei voi olla tyhjä ", rivi.Cells[1].Value.ToString()); 
 
                         dgvc[1].HeaderCell.Style.BackColor = Color.Red;
                         rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
@@ -3488,9 +3742,7 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                     // Konfiguroitavana asetuksena mikä vuosi
                     if ((rivi.Cells[1] != null) || (rivi.Cells[1].Value.ToString().Length > 0))
                     {
-                        int vuosiluku;
-
-                        //virhejulkaisuorgtunnus = " jultunnus: " + rivi.Cells[4].Value.ToString();
+                        int vuosiluku;                                                
 
                         if (!Int32.TryParse(rivi.Cells[1].Value.ToString().Trim(), out vuosiluku))
                         {
@@ -3500,6 +3752,8 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                             virheita += "Ilmoitusvuoden pitää olla vuosiluku (numeerinen), rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
                             virheIlmoitus2();
+
+                            RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Ilmoitusvuoden pitää olla vuosiluku (numeerinen), virheellinen ", rivi.Cells[1].Value.ToString()); 
 
                             dgvc[1].HeaderCell.Style.BackColor = Color.Red;
                             rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
@@ -3515,6 +3769,8 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
                             virheIlmoitus2();
 
+                            RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Ilmoitusvuoden pitää olla " + vuosiIlmo.ToString() + " virheellinen " , rivi.Cells[1].Value.ToString()); 
+
                             dgvc[1].HeaderCell.Style.BackColor = Color.Red;
                             rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
                             rowStyle.BackColor = Color.Red;
@@ -3522,21 +3778,21 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                         }
                     }
 
-                    // JulkaisunTilaKoodi vakio arvo 2 koska ei ole csv:ssä tätä tietoa, voi muuttaa sallittujen arvojen mukaan datagridissä
+                    // JulkaisunTilaKoodi vakio arvo 2 jos ei ole csv:ssä tätä tietoa, tietoa voi muuttaa sallittujen arvojen mukaan datagridissä
                     if ((rivi.Cells[3] != null) || (rivi.Cells[3].Value.ToString().Length > 0))
                     {
-                        int tilakoodi;
-
-                        //virhejulkaisuorgtunnus = " jultunnus: " + rivi.Cells[4].Value.ToString();
+                        int tilakoodi;                        
 
                         if (!Int32.TryParse(rivi.Cells[3].Value.ToString().Trim(), out tilakoodi))
                         {
                             XMLdataGridView.Rows[num].Cells[3].Style.BackColor = Color.Red;
                             TallennaXMLButton.Enabled = false;
 
-                            virheita += "Julkaisun tilakoodi voi olla vain -1,0,1 tai 2 (numeerinen), rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
+                            virheita += "Julkaisun tilakoodi voi olla vain -1, 0, 1 tai 2 (numeerinen), rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
                             virheIlmoitus2();
+
+                            RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Julkaisun tilakoodi pitää olla 0, 1, 2 tai sitten -1", rivi.Cells[3].Value.ToString()); 
 
                             dgvc[3].HeaderCell.Style.BackColor = Color.Red;
                             rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
@@ -3548,9 +3804,11 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                             XMLdataGridView.Rows[num].Cells[3].Style.BackColor = Color.Red;
                             TallennaXMLButton.Enabled = false;
 
-                            virheita += "Julkaisun tilakoodi voi olla vain -1,0,1 tai 2, rivillä " + (num + 1) + " koodi: " + tilakoodi + " on virheellinen " + virhejulkaisuorgtunnus + ".\n\r\n\r";
+                            virheita += "Julkaisun tilakoodi voi olla vain -1, 0, 1 tai 2, rivillä " + (num + 1) + " koodi: " + tilakoodi + " on virheellinen " + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
                             virheIlmoitus2();
+
+                            RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Julkaisun tilakoodi pitää olla 0, 1, 2 tai sitten -1", rivi.Cells[3].Value.ToString()); 
 
                             dgvc[3].HeaderCell.Style.BackColor = Color.Red;
                             rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
@@ -3564,36 +3822,32 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                     if ((rivi.Cells[3] == null) || (rivi.Cells[3].Value.ToString().Length == 0))
                     {
                         XMLdataGridView.Rows[num].Cells[3].Style.BackColor = Color.Red;
-                        TallennaXMLButton.Enabled = false;
-
-                        //virhejulkaisuorgtunnus = " jultunnus: " + rivi.Cells[4].Value.ToString();
+                        TallennaXMLButton.Enabled = false;                                               
 
                         virheita += "Pakollinen tieto. Julkaisun tilakoodi ei saa olla tyhjä (arvon pitää olla 0, 1, 2 tai sitten -1), rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
                         virheIlmoitus2();
+
+                        RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Julkaisun tilakoodi ei saa olla tyhjä (arvon pitää olla 0, 1, 2 tai sitten -1)", rivi.Cells[3].Value.ToString()); 
 
                         dgvc[3].HeaderCell.Style.BackColor = Color.Red;
                         rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
                         rowStyle.BackColor = Color.Red;
                         XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
                     }
-
-
-
-
-
+                    
    
                     // JulkaisuVuosi on pakollinen
                     if ((rivi.Cells[6] == null) || (rivi.Cells[6].Value.ToString().Length == 0))
                     {                        
                         XMLdataGridView.Rows[num].Cells[6].Style.BackColor = Color.Red;
-                        TallennaXMLButton.Enabled = false;
-
-                        //virhejulkaisuorgtunnus = " jultunnus: " + rivi.Cells[4].Value.ToString();
+                        TallennaXMLButton.Enabled = false;           
 
                         virheita += "Pakollinen tieto. Julkaisun vuosi ei voi olla tyhjä, rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
                         virheIlmoitus2();
+
+                        RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Julkaisuvuosi ei saa olla tyhjä ", rivi.Cells[6].Value.ToString()); 
 
                         dgvc[6].HeaderCell.Style.BackColor = Color.Red;
                         rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
@@ -3605,9 +3859,7 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                     // Julkaisuvuoden oltava numeerinen ja 1970 - 2030 väliltä
                     if ((rivi.Cells[6] != null) || (rivi.Cells[6].Value.ToString().Length > 0))
                     {                        
-                        int vuosiluku;
-
-                        //virhejulkaisuorgtunnus = " jultunnus: " + rivi.Cells[4].Value.ToString();
+                        int vuosiluku;              
 
                         if (!Int32.TryParse(rivi.Cells[6].Value.ToString().Trim(), out vuosiluku))
                         {
@@ -3617,6 +3869,8 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                             virheita += "Julkaisu vuoden pitää olla vuosiluku (numeerinen), rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
                             virheIlmoitus2();
+
+                            RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Julkaisuvuoden pitää olla vuosiluku 1970 - 2030 ", rivi.Cells[6].Value.ToString()); 
 
                             dgvc[6].HeaderCell.Style.BackColor = Color.Red;
                             rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
@@ -3632,6 +3886,8 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
                             virheIlmoitus2();
 
+                            RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Julkaisuvuoden pitää olla 1970 - 2030 ", rivi.Cells[6].Value.ToString()); 
+
                             dgvc[6].HeaderCell.Style.BackColor = Color.Red;
                             rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
                             rowStyle.BackColor = Color.Red;
@@ -3645,13 +3901,13 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                     if ((rivi.Cells[7] == null) || (rivi.Cells[7].Value.ToString().Length == 0))
                     {                        
                         XMLdataGridView.Rows[num].Cells[7].Style.BackColor = Color.Red;
-                        TallennaXMLButton.Enabled = false;
-
-                        //virhejulkaisuorgtunnus = " jultunnus: " + rivi.Cells[4].Value.ToString();
+                        TallennaXMLButton.Enabled = false;                                               
 
                         virheita += "Pakollinen tieto. Julkaisun nimi ei voi olla tyhjä, rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
                         virheIlmoitus2();
+
+                        RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Pakollinen tieto. Julkaisun nimi ei voi olla tyhjä ", rivi.Cells[7].Value.ToString()); 
 
                         dgvc[7].HeaderCell.Style.BackColor = Color.Red;
                         rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
@@ -3663,13 +3919,13 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                     if ((rivi.Cells[8] == null) || (rivi.Cells[8].Value.ToString().Trim().Length == 0))
                     {                        
                         XMLdataGridView.Rows[num].Cells[8].Style.BackColor = Color.Red;
-                        TallennaXMLButton.Enabled = false;
-
-                        //virhejulkaisuorgtunnus = " jultunnus: " + rivi.Cells[4].Value.ToString();
+                        TallennaXMLButton.Enabled = false;                                               
 
                         virheita += "Pakollinen tieto. Tekijatiedot teksti ei voi olla tyhjä, rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
                         virheIlmoitus2();
+
+                        RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Pakollinen tieto. Tekijatiedot teksti ei voi olla tyhjä ", rivi.Cells[8].Value.ToString()); 
 
                         dgvc[8].HeaderCell.Style.BackColor = Color.Red;
                         rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
@@ -3685,19 +3941,45 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                         if (!val)
                         {
                             XMLdataGridView.Rows[num].Cells[8].Style.BackColor = Color.Red;
-                            TallennaXMLButton.Enabled = false;
-
-                            //virhejulkaisuorgtunnus = " jultunnus: " + rivi.Cells[4].Value.ToString();
+                            TallennaXMLButton.Enabled = false;                                                       
 
                             virheita += "Pakollinen tieto. Tekijatiedot teksti ei voi olla tyhjä, rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
                             virheIlmoitus2();
+
+                            RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Pakollinen tieto. Tekijatiedot teksti ei voi olla tyhjä ", rivi.Cells[8].Value.ToString()); 
 
                             dgvc[8].HeaderCell.Style.BackColor = Color.Red;
                             rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
                             rowStyle.BackColor = Color.Red;
                             XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
                         }
-                    }			
+                    }
+
+
+
+                    // Artikkelinumero ei ole pakollinen mutta pitää olla alle 50 merkkiä
+                    if ((rivi.Cells[11] != null) || (rivi.Cells[8].Value.ToString().Trim().Length != 0))
+                    {
+                        int pituus = rivi.Cells[11].Value.ToString().Length;
+
+                        if (pituus > 50)
+                        {
+                            XMLdataGridView.Rows[num].Cells[11].Style.BackColor = Color.Red;
+                            TallennaXMLButton.Enabled = false;
+
+                            virheita += "Artikkelinumero ei ole pakollinen tieto, mutta oltava alle 50 merkkiä, rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
+                            virheIlmoitus2();
+
+                            RekisteroiVirheet("VIRHE", rivi.Cells[11].Value.ToString().Trim(), (num + 1).ToString(), " on oltava alle 50 merkkiä. Nyt se on: " + pituus.ToString() + " merkkiä", rivi.Cells[11].Value.ToString());
+
+                            dgvc[11].HeaderCell.Style.BackColor = Color.Red;
+                            rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                            rowStyle.BackColor = Color.Red;
+                            XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                        }
+
+                    }		
+
 
 
                     // Tarkista ISBN  indeksi 13 
@@ -3717,16 +3999,15 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                                 }
 
                                 if (!toinen_tsaanssi) { 
-
-                                    //MessageBox.Show( rivi.Cells[13].Value.ToString(), "Ei ole validi ISBN");
+                                                                        
                                     XMLdataGridView.Rows[num].Cells[13].Style.BackColor = Color.Red;
-                                    TallennaXMLButton.Enabled = false;
-
-                                    //virhejulkaisuorgtunnus = " jultunnus: " + rivi.Cells[4].Value.ToString();
+                                    TallennaXMLButton.Enabled = false;                                                                       
 
                                     virheita += "ISBN " + rivi.Cells[13].Value.ToString() + " virheellinen rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
                                     virheIlmoitus2();
+                                                                    
+                                    RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "ISBN virheellinen", rivi.Cells[13].Value.ToString());                                    
 
                                     dgvc[13].HeaderCell.Style.BackColor = Color.Red;                                
                                     rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
@@ -3736,11 +4017,11 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                                 }
                                 else
                                 {   // Ei virhe vaan ilmoitus korjausliikkeestä
-                                    errorTextBox.AppendText("Korjataan ISBN:" + rivi.Cells[13].Value.ToString() + " => " + isbn_ilman_mitaan + "\n\r\n\r");
+                                    errorTextBox.AppendText("Korjataan ISBN:" + rivi.Cells[13].Value.ToString() + " => " + isbn_ilman_mitaan + " rivillä " + (num + 1) + "\n\r\n\r");
 
                                     if (LokiOlemassa(masterloki))
                                     {
-                                        KirjoitaLokiin("Korjataan ISBN:" + rivi.Cells[13].Value.ToString() + " => " + isbn_ilman_mitaan + "\n\r\n\r", masterloki);
+                                        KirjoitaLokiin("Korjataan ISBN:" + rivi.Cells[13].Value.ToString() + " => " + isbn_ilman_mitaan + " rivillä " + (num + 1) + "\n\r\n\r", masterloki);
                                     }
 
                                     rivi.Cells[13].Value = isbn_ilman_mitaan;
@@ -3768,13 +4049,12 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                                 XMLdataGridView.Rows[num].Cells[26].Style.BackColor = Color.Red;
 
                                 TallennaXMLButton.Enabled = false;
-
-                                //virhejulkaisuorgtunnus = " jultunnus: " + rivi.Cells[4].Value.ToString();
-
+                                                                
                                 virheita += "ISBN tai ISSN on pakollinen jos julkaisutyyppi on " + rivi.Cells[26].Value.ToString() + " rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
-                                //virheita += "ISBN on pakollinen jos julkaisutyyppi on " + rivi.Cells[26].Value.ToString() + " rivillä " + (num + 1) + ".\n\r\n\r";
-
+                                
                                 virheIlmoitus2();
+
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "ISSN tai ISBN on pakollinen jos julkaisutyyppi ", rivi.Cells[26].Value.ToString()); 
 
                                 dgvc[13].HeaderCell.Style.BackColor = Color.Red;  // ISBN sarake                              
                                 dgvc[26].HeaderCell.Style.BackColor = Color.Red;  // Julkaisutyyppi sarake 
@@ -3792,41 +4072,46 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                     // Tarkista ISSN indeksi 18                   
                     if ((rivi.Cells[18] != null) && (rivi.Cells[18].Value.ToString().Length > 0))
                     {
+                        string temp_str_issn = rivi.Cells[18].Value.ToString().Trim().ToUpper();
 
-                        if (rivi.Cells[18].Value.ToString().Length > 9)
+                        if ( temp_str_issn.Length > 9)
                         {
 
-                            string issn = Regex.Replace(rivi.Cells[18].Value.ToString(), " ", ""); // Ei välilyöntejä	
-                            errorTextBox.AppendText("Korjataan ISSN poistetaan välilyöntejä: " + rivi.Cells[18].Value.ToString() + " => " + issn + "\n\r\n\r");
+                            string issn = Regex.Replace(temp_str_issn, " ", ""); // Ei välilyöntejä sisällä	
+
+                            errorTextBox.AppendText("Korjataan ISSN poistetaan välilyöntejä: " + rivi.Cells[18].Value.ToString() + " => " + issn + " rivillä " + (num + 1) + "\n\r\n\r");
 
                             if (LokiOlemassa(masterloki))
                             {
-                                KirjoitaLokiin("Korjataan ISSN poistetaan välilyöntejä: " + rivi.Cells[18].Value.ToString() + " => " + issn + "\n\r\n\r", masterloki);
+                                KirjoitaLokiin("Korjataan ISSN poistetaan välilyöntejä: " + rivi.Cells[18].Value.ToString() + " => " + issn + " rivillä " + (num + 1) + "\n\r\n\r", masterloki);
                             }
+
                             rivi.Cells[18].Value = issn;
                             XMLdataGridView.Rows[num].Cells[18].Style.BackColor = Color.Green;
                         }
 
                         // Tarkistetaan vielä onko tarkiste ynm ok myös
-
-                        bool val = TarkistaISSN(rivi.Cells[18].Value.ToString());
+                        bool val = TarkistaISSN(temp_str_issn);
 
                         if (!val)                       
                         {
                             XMLdataGridView.Rows[num].Cells[18].Style.BackColor = Color.Red;
-                            TallennaXMLButton.Enabled = false;
-
-                            //virhejulkaisuorgtunnus = " jultunnus: " + rivi.Cells[4].Value.ToString();
+                            TallennaXMLButton.Enabled = false;                           
 
                             virheita += "ISSN " + rivi.Cells[18].Value.ToString() + " virheellinen rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
-                            virheIlmoitus2();
+                            virheIlmoitus2();                         
 
+                            RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "ISSN virheellinen", rivi.Cells[18].Value.ToString());   
+                            
                             dgvc[18].HeaderCell.Style.BackColor = Color.Red;
                             rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
                             rowStyle.BackColor = Color.Red;
                             XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
                         }
+
+                        rivi.Cells[18].Value = temp_str_issn;
+
                     }
 
 
@@ -3844,14 +4129,13 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                                 XMLdataGridView.Rows[num].Cells[13].Style.BackColor = Color.Red;
 
                                 XMLdataGridView.Rows[num].Cells[26].Style.BackColor = Color.Red;
-                                TallennaXMLButton.Enabled = false;
-
-                                //virhejulkaisuorgtunnus = " jultunnus: " + rivi.Cells[4].Value.ToString();
+                                TallennaXMLButton.Enabled = false;                                                              
 
                                 virheita += "ISSN tai ISBN on pakollinen jos julkaisutyyppi on " + rivi.Cells[26].Value.ToString() + " rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
-                                //virheita += "ISSN on pakollinen jos julkaisutyyppi on " + rivi.Cells[26].Value.ToString() + " rivillä " + (num + 1) + ".\n\r\n\r";
-
+                               
                                 virheIlmoitus2();
+
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "ISSN tai ISBN on pakollinen jos julkaisutyyppi ", rivi.Cells[26].Value.ToString()); 
 
                                 dgvc[18].HeaderCell.Style.BackColor = Color.Red;  // ISSN sarake                              
                                 dgvc[26].HeaderCell.Style.BackColor = Color.Red;  // Julkaisutyyppi sarake 
@@ -3871,12 +4155,12 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                     {
                         XMLdataGridView.Rows[num].Cells[26].Style.BackColor = Color.Red;
                         TallennaXMLButton.Enabled = false;
-
-                        //virhejulkaisuorgtunnus = " jultunnus: " + rivi.Cells[4].Value.ToString();
-
+                       
                         virheita += "Pakollinen tieto.  Julkaisun tyyppikoodi ei voi olla tyhjä, rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
                         virheIlmoitus2();
+
+                        RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Pakollinen tieto.  Julkaisun tyyppikoodi ei voi olla tyhjä", rivi.Cells[26].Value.ToString()); 
 
                         dgvc[26].HeaderCell.Style.BackColor = Color.Red;
                         rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
@@ -3892,13 +4176,13 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                         if (!val)                        
                         {
                             XMLdataGridView.Rows[num].Cells[26].Style.BackColor = Color.Red;
-                            TallennaXMLButton.Enabled = false;
-
-                            //virhejulkaisuorgtunnus = " jultunnus: " + rivi.Cells[4].Value.ToString();
+                            TallennaXMLButton.Enabled = false;                                                       
 
                             virheita += "Julkaisutyyppikoodi " + rivi.Cells[26].Value.ToString() + " virheellinen rivillä " + (num + 1) + ".\n\r\n\r";
 
-                            virheIlmoitus2();                         
+                            virheIlmoitus2();
+
+                            RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Julkaisutyyppikoodi virheellinen ", rivi.Cells[26].Value.ToString()); 
 
                             dgvc[26].HeaderCell.Style.BackColor = Color.Red;
                             rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
@@ -3931,6 +4215,8 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
                             virheIlmoitus2();
 
+                            RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Julkaisutyyppikoodilla " + rivi.Cells[26].Value.ToString() + " ISBN tai ISSN ", rivi.Cells[26].Value.ToString()); 
+
                             dgvc[26].HeaderCell.Style.BackColor = Color.Red;
                             dgvc[13].HeaderCell.Style.BackColor = Color.Red;
                             dgvc[18].HeaderCell.Style.BackColor = Color.Red;
@@ -3956,7 +4242,9 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
                             virheita += "Tieteenalakoodi " + rivi.Cells[27].Value.ToString() + " virheellinen rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
-                            virheIlmoitus2();                          
+                            virheIlmoitus2();
+
+                            RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Tieteenalakoodi virheellinen ", rivi.Cells[27].Value.ToString()); 
 
                             dgvc[27].HeaderCell.Style.BackColor = Color.Red;
                             rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
@@ -3979,7 +4267,9 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
                             virheita += "Koulutusalakoodi " + rivi.Cells[28].Value.ToString() + " virheellinen rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
-                            virheIlmoitus2();                           
+                            virheIlmoitus2();
+
+                            RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Koulutusalakoodi virheellinen ", rivi.Cells[28].Value.ToString()); 
 
                             dgvc[28].HeaderCell.Style.BackColor = Color.Red;
                             rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
@@ -3988,21 +4278,73 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                         }
                     }
 
-                    // Tekijän sukunimi on pakollinen
-                    if ((rivi.Cells[40] == null) || (rivi.Cells[40].Value.ToString().Length == 0))
+                    // Tekijän sukunimi 2015 index 40, 2016 index 39
+                    if (vuosiIlmo == 2015)
                     {
-                        XMLdataGridView.Rows[num].Cells[40].Style.BackColor = Color.Red;
-                        TallennaXMLButton.Enabled = false;
 
-                        virheita += "Pakollinen tieto.  Julkaisun tekijän nimi ei voi olla tyhjä, rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
+                        // Tekijän sukunimi on pakollinen
+                        if ((rivi.Cells[40] == null) || (rivi.Cells[40].Value.ToString().Length == 0))
+                        {
+                            XMLdataGridView.Rows[num].Cells[40].Style.BackColor = Color.Red;
+                            TallennaXMLButton.Enabled = false;
 
-                        virheIlmoitus2();
+                            virheita += "Pakollinen tieto.  Julkaisun tekijän nimi ei voi olla tyhjä, rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
-                        dgvc[40].HeaderCell.Style.BackColor = Color.Red;
-                        rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
-                        rowStyle.BackColor = Color.Red;
-                        XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                            virheIlmoitus2();
+
+                            RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Pakollinen tieto.  Julkaisun tekijän nimi ei voi olla tyhjä", rivi.Cells[40].Value.ToString()); 
+
+                            dgvc[40].HeaderCell.Style.BackColor = Color.Red;
+                            rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                            rowStyle.BackColor = Color.Red;
+                            XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                        }
+
+
+                        // Tekijän sukunimi siistimistä
+                        if ((rivi.Cells[40] != null) || (rivi.Cells[40].Value.ToString().Trim().Length > 0))
+                        {
+
+                            string str = PoistaViimeisetPuolipisteet(rivi.Cells[40].Value.ToString().Trim());
+
+                            rivi.Cells[40].Value = str;
+                        }
                     }
+                    
+
+                    if (vuosiIlmo == 2016)
+                    {
+
+                        // Tekijän sukunimi on pakollinen
+                        if ((rivi.Cells[39] == null) || (rivi.Cells[39].Value.ToString().Length == 0))
+                        {
+                            XMLdataGridView.Rows[num].Cells[39].Style.BackColor = Color.Red;
+                            TallennaXMLButton.Enabled = false;
+
+                            virheita += "Pakollinen tieto.  Julkaisun tekijän nimi ei voi olla tyhjä, rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
+
+                            virheIlmoitus2();
+
+                            RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Pakollinen tieto. Julkaisun tekijän nimi ei voi olla tyhjä", rivi.Cells[39].Value.ToString()); 
+
+                            dgvc[39].HeaderCell.Style.BackColor = Color.Red;
+                            rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                            rowStyle.BackColor = Color.Red;
+                            XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                        }
+
+
+                        // Tekijän sukunimi siistimistä
+                        if ((rivi.Cells[39] != null) || (rivi.Cells[39].Value.ToString().Trim().Length > 0))
+                        {
+
+                            string str = PoistaViimeisetPuolipisteet(rivi.Cells[39].Value.ToString().Trim());
+
+                            rivi.Cells[39].Value = str;
+                        }
+                    }
+
+                    
 
                     // Jos Kustantajan nimi indeksi 22 puuttuu. Tarkista onko pakollinen...
                     if ((rivi.Cells[22] == null) || (rivi.Cells[22].Value.ToString().Trim().Length == 0))
@@ -4020,6 +4362,8 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
                             virheIlmoitus2();
 
+                            RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Kustantajan nimi on pakollinen jos julkaisutyyppi", rivi.Cells[26].Value.ToString()); 
+
                             dgvc[22].HeaderCell.Style.BackColor = Color.Red;  // Kustantajan nimi sarake                              
                             dgvc[26].HeaderCell.Style.BackColor = Color.Red;  // Julkaisutyyppi sarake 
 
@@ -4028,6 +4372,7 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                             XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
                         }
                     }
+
 
                     // Jos KonferenssinNimi indeksi 21 puuttuu. Tarkista onko pakollinen...
                     if ((rivi.Cells[21] == null) || (rivi.Cells[21].Value.ToString().Trim().Length == 0))
@@ -4044,6 +4389,8 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                             virheita += "Konferenssin nimi on pakollinen jos julkaisutyyppi " + rivi.Cells[26].Value.ToString() + " rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
                             virheIlmoitus2();
+
+                            RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Konferenssin nimi on pakollinen jos julkaisutyyppi", rivi.Cells[26].Value.ToString()); 
 
                             dgvc[21].HeaderCell.Style.BackColor = Color.Red;  // Kustantajan nimi sarake                              
                             dgvc[26].HeaderCell.Style.BackColor = Color.Red;  // Julkaisutyyppi sarake 
@@ -4068,6 +4415,8 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
                             virheIlmoitus2();
 
+                            RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Tekijöiden lukumäärä pitää olla numeerinen positiivinen kokonaisluku", rivi.Cells[9].Value.ToString()); 
+
                             dgvc[9].HeaderCell.Style.BackColor = Color.Red;
                             rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
                             rowStyle.BackColor = Color.Red;
@@ -4082,10 +4431,8 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                     if ((rivi.Cells[16] != null) && (rivi.Cells[16].Value.ToString().Length > 0))
                     {
 
-
                         if (rivi.Cells[16].Value.ToString().Trim().Length < 3)
                         {
-
                             string maakoodi = "0" + rivi.Cells[16].Value.ToString().Trim(); // Lisätään etunolla
 
                             // Vieläkin puuttuu 0?
@@ -4094,11 +4441,11 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                                 maakoodi = "0" + maakoodi;
                             }
 
-                            errorTextBox.AppendText("Korjataan maakoodi lisätään eteen etunolla (0+): " + rivi.Cells[16].Value.ToString() + " => " + maakoodi + "\n\r\n\r");
+                            errorTextBox.AppendText("Korjataan maakoodi lisätään eteen etunolla (0+): " + rivi.Cells[16].Value.ToString() + " => " + maakoodi + " rivillä " + (num + 1) + "\n\r\n\r");
 
                             if (LokiOlemassa(masterloki))
                             {
-                                KirjoitaLokiin("Korjataan maakoodi  maakoodi lisätään eteen etunolla (0+): " + rivi.Cells[16].Value.ToString() + " => " + maakoodi + "\n\r\n\r", masterloki);
+                                KirjoitaLokiin("Korjataan maakoodi  maakoodi lisätään eteen etunolla (0+): " + rivi.Cells[16].Value.ToString() + " => " + maakoodi + " rivillä " + (num + 1) + "\n\r\n\r", masterloki);
                             }
 
                             rivi.Cells[16].Value = maakoodi;
@@ -4106,7 +4453,6 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                             XMLdataGridView.Rows[num].Cells[16].Style.BackColor = Color.Green;
                         }	
 						
-
 
                         Boolean val = CheckMaaKoodi(rivi.Cells[16].Value.ToString());
 
@@ -4119,6 +4465,8 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
                             virheIlmoitus2();
 
+                            RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Julkaisumaa koodi virheellinen", rivi.Cells[16].Value.ToString()); 
+
                             dgvc[16].HeaderCell.Style.BackColor = Color.Red;
                             rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
                             rowStyle.BackColor = Color.Red;
@@ -4126,28 +4474,61 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                         }
                     }
 
-
-                    // Kieli koodin oikeellisuus
-                    if ((rivi.Cells[34] != null) && (rivi.Cells[34].Value.ToString().Length > 0))
+                    // JulkaisunKieliKoodi 2015
+                    if (vuosiIlmo == 2015)
                     {
-                        Boolean val = CheckKieliKoodi(rivi.Cells[34].Value.ToString());
-
-                        if (!val)
+                        // Kieli koodin oikeellisuus
+                        if ((rivi.Cells[34] != null) && (rivi.Cells[34].Value.ToString().Length > 0))
                         {
-                            XMLdataGridView.Rows[num].Cells[34].Style.BackColor = Color.Red;
-                            TallennaXMLButton.Enabled = false;
+                            Boolean val = CheckKieliKoodi(rivi.Cells[34].Value.ToString());
 
-                            virheita += "Julkaisun kielikoodi " + rivi.Cells[34].Value.ToString() + " virheellinen rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
+                            if (!val)
+                            {
+                                XMLdataGridView.Rows[num].Cells[34].Style.BackColor = Color.Red;
+                                TallennaXMLButton.Enabled = false;
 
-                            virheIlmoitus2();
+                                virheita += "Julkaisun kielikoodi " + rivi.Cells[34].Value.ToString() + " virheellinen rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
-                            dgvc[34].HeaderCell.Style.BackColor = Color.Red;
-                            rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
-                            rowStyle.BackColor = Color.Red;
-                            XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                                virheIlmoitus2();
+
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Julkaisun kielikoodi virheellinen", rivi.Cells[34].Value.ToString()); 
+
+                                dgvc[34].HeaderCell.Style.BackColor = Color.Red;
+                                rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                rowStyle.BackColor = Color.Red;
+                                XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                            }
                         }
+
                     }
 
+                    // JulkaisunKieliKoodi 2016  indeksi 34 => 32
+                    if (vuosiIlmo == 2016)
+                    {
+                        // Kieli koodin oikeellisuus
+                        if ((rivi.Cells[31] != null) && (rivi.Cells[31].Value.ToString().Length > 0))
+                        {
+                            Boolean val = CheckKieliKoodi(rivi.Cells[31].Value.ToString());
+
+                            if (!val)
+                            {
+                                XMLdataGridView.Rows[num].Cells[31].Style.BackColor = Color.Red;
+                                TallennaXMLButton.Enabled = false;
+
+                                virheita += "Julkaisun kielikoodi " + rivi.Cells[31].Value.ToString() + " virheellinen rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
+
+                                virheIlmoitus2();
+
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Julkaisun kielikoodi virheellinen", rivi.Cells[31].Value.ToString()); 
+
+                                dgvc[31].HeaderCell.Style.BackColor = Color.Red;
+                                rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                rowStyle.BackColor = Color.Red;
+                                XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                            }
+                        }
+                    }
+                   
 
                     // YhteisjulkaisuKVKytkin oltava numeerinen 0 tai 1
                     if ((rivi.Cells[29] != null) || (rivi.Cells[29].Value.ToString().Length > 0))
@@ -4163,6 +4544,8 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
 		                    virheIlmoitus2();
 
+                            RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "YhteisjulkaisuKVKytkin pitää olla 0 (ei) tai 1 (kyllä), virheellinen", rivi.Cells[29].Value.ToString()); 
+
 		                    dgvc[29].HeaderCell.Style.BackColor = Color.Red;
 		                    rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
 		                    rowStyle.BackColor = Color.Red;
@@ -4177,6 +4560,8 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
 		                    virheIlmoitus2();
 
+                            RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "YhteisjulkaisuKVKytkin pitää olla 0 (ei) tai 1 (kyllä), virheellinen", rivi.Cells[29].Value.ToString()); 
+
 		                    dgvc[29].HeaderCell.Style.BackColor = Color.Red;
 		                    rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
 		                    rowStyle.BackColor = Color.Red;
@@ -4185,317 +4570,509 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 	                    }
                     }
 
-
-                    // YhteisjulkaisuSHPKytkin oltava numeerinen 0 tai 1
-                    if ((rivi.Cells[30] != null) || (rivi.Cells[30].Value.ToString().Length > 0))
+                    if (vuosiIlmo == 2015)
                     {
-                        int nollaYx;
-
-                        if (!Int32.TryParse(rivi.Cells[30].Value.ToString().Trim(), out nollaYx))
+                        // YhteisjulkaisuSHPKytkin oltava numeerinen 0 tai 1
+                        if ((rivi.Cells[30] != null) || (rivi.Cells[30].Value.ToString().Length > 0))
                         {
-                            if (!OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()) )
+                            int nollaYx;
+
+                            if (!Int32.TryParse(rivi.Cells[30].Value.ToString().Trim(), out nollaYx))
+                            {
+                                if (!OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()))
+                                {
+                                    XMLdataGridView.Rows[num].Cells[30].Style.BackColor = Color.Red;
+                                    TallennaXMLButton.Enabled = false;
+
+                                    virheita += "YhteisjulkaisuSHPKytkin pitää olla numeerinen arvo (0 tai 1), rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
+
+                                    virheIlmoitus2();
+
+                                    RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "YhteisjulkaisuSHPKytkin pitää olla 0 (ei) tai 1 (kyllä), virheellinen", rivi.Cells[30].Value.ToString()); 
+
+
+                                    dgvc[30].HeaderCell.Style.BackColor = Color.Red;
+                                    rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                    rowStyle.BackColor = Color.Red;
+                                    XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                                }
+
+                                if (OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()))
+                                {
+                                    Boolean val = CheckKytkinkoodi(rivi.Cells[30].Value.ToString(), rivi.Cells[0].Value.ToString().Trim());
+
+                                    if (!val)
+                                    {
+                                        XMLdataGridView.Rows[num].Cells[30].Style.BackColor = Color.Yellow;
+                                        TallennaXMLButton.Enabled = false;
+
+                                        virheita += "YhteisjulkaisuSHPKytkin vapaaehtoinen tieto sairaaloille ja tutkimuslaitoksille. Jos muu kuin tyhjä, niin pitää olla numeerinen arvo (0 tai 1), rivillä " + (num + 1) + " Virheellinen: " + rivi.Cells[30].Value.ToString() + virhejulkaisuorgtunnus + ".\n\r\n\r";
+
+                                        virheIlmoitus2();
+
+                                        RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "YhteisjulkaisuSHPKytkin pitää olla 0 (ei) tai 1 (kyllä), virheellinen", rivi.Cells[30].Value.ToString()); 
+
+                                        dgvc[30].HeaderCell.Style.BackColor = Color.Yellow;
+                                        rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                        rowStyle.BackColor = Color.Yellow;
+                                        XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                                    }
+                                }
+
+
+                            }
+                            else if (nollaYx < 0 || nollaYx > 1)
                             {
                                 XMLdataGridView.Rows[num].Cells[30].Style.BackColor = Color.Red;
                                 TallennaXMLButton.Enabled = false;
 
-                                virheita += "YhteisjulkaisuSHPKytkin pitää olla numeerinen arvo (0 tai 1), rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
+                                virheita += "YhteisjulkaisuSHPKytkin pitää olla 0 (ei) tai 1 (kyllä), rivillä " + (num + 1) + ", numero: " + nollaYx + " on virheellinen arvo." + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
                                 virheIlmoitus2();
+
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "YhteisjulkaisuSHPKytkin pitää olla 0 (ei) tai 1 (kyllä), virheellinen", rivi.Cells[30].Value.ToString()); 
 
                                 dgvc[30].HeaderCell.Style.BackColor = Color.Red;
                                 rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
                                 rowStyle.BackColor = Color.Red;
                                 XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
-                             }
 
-                            if ( OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()) )
+                            }
+                        }
+                    }
+
+
+                    if (vuosiIlmo == 2015)
+                    {
+                        // YhteisjulkaisuTutkimuslaitosKytkin oltava numeerinen 0 tai 1
+                        if ((rivi.Cells[31] != null) || (rivi.Cells[31].Value.ToString().Length > 0))
+                        {
+                            int nollaYx;
+
+                            if (!Int32.TryParse(rivi.Cells[31].Value.ToString().Trim(), out nollaYx))
                             {
-                                Boolean val = CheckKytkinkoodi(rivi.Cells[30].Value.ToString(), rivi.Cells[0].Value.ToString().Trim());
-
-                                if (!val)
+                                if (!OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()))
                                 {
-                                    XMLdataGridView.Rows[num].Cells[30].Style.BackColor = Color.Yellow;
+                                    XMLdataGridView.Rows[num].Cells[31].Style.BackColor = Color.Red;
                                     TallennaXMLButton.Enabled = false;
 
-                                    virheita += "YhteisjulkaisuSHPKytkin vapaaehtoinen tieto sairaaloille ja tutkimuslaitoksille. Jos muu kuin tyhjä, niin pitää olla numeerinen arvo (0 tai 1), rivillä " + (num + 1) + " Virheellinen: " + rivi.Cells[30].Value.ToString() + virhejulkaisuorgtunnus +  ".\n\r\n\r";
+                                    virheita += "YhteisjulkaisuTutkimuslaitosKytkin pitää olla numeerinen arvo (0 tai 1), rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
                                     virheIlmoitus2();
 
-                                    dgvc[30].HeaderCell.Style.BackColor = Color.Yellow;
+                                    RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "YhteisjulkaisuTutkimuslaitosKytkin pitää olla 0 (ei) tai 1 (kyllä), virheellinen", rivi.Cells[31].Value.ToString()); 
+
+                                    dgvc[31].HeaderCell.Style.BackColor = Color.Red;
                                     rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
-                                    rowStyle.BackColor = Color.Yellow;
+                                    rowStyle.BackColor = Color.Red;
                                     XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
                                 }
+
+                                if (OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()))
+                                {
+                                    Boolean val = CheckKytkinkoodi(rivi.Cells[31].Value.ToString(), rivi.Cells[0].Value.ToString().Trim());
+
+                                    if (!val)
+                                    {
+                                        XMLdataGridView.Rows[num].Cells[31].Style.BackColor = Color.Yellow;
+                                        TallennaXMLButton.Enabled = false;
+
+                                        virheita += "YhteisjulkaisuTutkimuslaitosKytkin vapaaehtoinen tieto sairaaloille ja tutkimuslaitoksille. Jos muu kuin tyhjä, niin pitää olla numeerinen arvo (0 tai 1), rivillä " + (num + 1) + " Virheellinen: " + rivi.Cells[31].Value.ToString() + virhejulkaisuorgtunnus + ".\n\r\n\r";
+
+                                        virheIlmoitus2();
+
+                                        RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "YhteisjulkaisuTutkimuslaitosKytkin pitää olla 0 (ei) tai 1 (kyllä), virheellinen", rivi.Cells[31].Value.ToString()); 
+
+                                        dgvc[31].HeaderCell.Style.BackColor = Color.Yellow;
+                                        rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                        rowStyle.BackColor = Color.Yellow;
+                                        XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                                    }
+
+                                }
+
+
+
                             }
-   
-
-                        }
-                        else if (nollaYx < 0 || nollaYx > 1)
-                        {
-                            XMLdataGridView.Rows[num].Cells[30].Style.BackColor = Color.Red;
-                            TallennaXMLButton.Enabled = false;
-
-                            virheita += "YhteisjulkaisuSHPKytkin pitää olla 0 (ei) tai 1 (kyllä), rivillä " + (num + 1) + ", numero: " + nollaYx + " on virheellinen arvo." + virhejulkaisuorgtunnus + ".\n\r\n\r";
-
-                            virheIlmoitus2();
-
-                            dgvc[30].HeaderCell.Style.BackColor = Color.Red;
-                            rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
-                            rowStyle.BackColor = Color.Red;
-                            XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
-
-                        }
-                    }
-                    
-
-                    // YhteisjulkaisuTutkimuslaitosKytkin oltava numeerinen 0 tai 1
-                    if ((rivi.Cells[31] != null) || (rivi.Cells[31].Value.ToString().Length > 0))
-                    {
-                        int nollaYx;
-
-                        if (!Int32.TryParse(rivi.Cells[31].Value.ToString().Trim(), out nollaYx))
-                        {
-                            if (!OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()))
+                            else if (nollaYx < 0 || nollaYx > 1)
                             {
                                 XMLdataGridView.Rows[num].Cells[31].Style.BackColor = Color.Red;
                                 TallennaXMLButton.Enabled = false;
 
-                                virheita += "YhteisjulkaisuTutkimuslaitosKytkin pitää olla numeerinen arvo (0 tai 1), rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
+                                virheita += "YhteisjulkaisuTutkimuslaitosKytkin pitää olla 0 (ei) tai 1 (kyllä), rivillä " + (num + 1) + ", numero: " + nollaYx + " on virheellinen arvo." + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
                                 virheIlmoitus2();
+
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "YhteisjulkaisuTutkimuslaitosKytkin pitää olla 0 (ei) tai 1 (kyllä), virheellinen", rivi.Cells[31].Value.ToString()); 
 
                                 dgvc[31].HeaderCell.Style.BackColor = Color.Red;
                                 rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
                                 rowStyle.BackColor = Color.Red;
                                 XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+
                             }
+                        }
+                    }
 
-                            if (OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()))
+
+                    if (vuosiIlmo == 2015)
+                    {
+                        // YhteisjulkaisuMuuKytkin oltava numeerinen 0 tai 1
+                        if ((rivi.Cells[32] != null) || (rivi.Cells[32].Value.ToString().Length > 0))
+                        {
+                            int nollaYx;
+
+                            if (!Int32.TryParse(rivi.Cells[32].Value.ToString().Trim(), out nollaYx))
                             {
-                                Boolean val = CheckKytkinkoodi(rivi.Cells[31].Value.ToString(), rivi.Cells[0].Value.ToString().Trim());
-
-                                if (!val)
+                                if (!OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()))
                                 {
-                                    XMLdataGridView.Rows[num].Cells[31].Style.BackColor = Color.Yellow;
+                                    XMLdataGridView.Rows[num].Cells[32].Style.BackColor = Color.Red;
                                     TallennaXMLButton.Enabled = false;
 
-                                    virheita += "YhteisjulkaisuTutkimuslaitosKytkin vapaaehtoinen tieto sairaaloille ja tutkimuslaitoksille. Jos muu kuin tyhjä, niin pitää olla numeerinen arvo (0 tai 1), rivillä " + (num + 1) + " Virheellinen: " + rivi.Cells[31].Value.ToString() + virhejulkaisuorgtunnus + ".\n\r\n\r";
+                                    virheita += "YhteisjulkaisuMuuKytkin pitää olla numeerinen arvo (0 tai 1), rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
                                     virheIlmoitus2();
 
-                                    dgvc[31].HeaderCell.Style.BackColor = Color.Yellow;
+                                    RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "YhteisjulkaisuMuuKytkin pitää olla 0 (ei) tai 1 (kyllä), virheellinen", rivi.Cells[32].Value.ToString()); 
+
+                                    dgvc[32].HeaderCell.Style.BackColor = Color.Red;
                                     rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
-                                    rowStyle.BackColor = Color.Yellow;
+                                    rowStyle.BackColor = Color.Red;
                                     XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
                                 }
-	
+
+                                if (OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()))
+                                {
+                                    Boolean val = CheckKytkinkoodi(rivi.Cells[32].Value.ToString(), rivi.Cells[0].Value.ToString().Trim());
+
+                                    if (!val)
+                                    {
+                                        XMLdataGridView.Rows[num].Cells[32].Style.BackColor = Color.Yellow;
+                                        TallennaXMLButton.Enabled = false;
+
+                                        virheita += "YhteisjulkaisuMuuKytkin vapaaehtoinen tieto sairaaloille ja tutkimuslaitoksille. Jos muu kuin tyhjä, niin pitää olla numeerinen arvo (0 tai 1), rivillä " + (num + 1) + " Virheellinen: " + rivi.Cells[32].Value.ToString() + virhejulkaisuorgtunnus + ".\n\r\n\r";
+
+                                        virheIlmoitus2();
+                                        
+                                        RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "YhteisjulkaisuMuuKytkin pitää olla 0 (ei) tai 1 (kyllä), virheellinen", rivi.Cells[32].Value.ToString()); 
+
+                                        dgvc[32].HeaderCell.Style.BackColor = Color.Yellow;
+                                        rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                        rowStyle.BackColor = Color.Yellow;
+                                        XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                                    }
+                                }
+
                             }
-
-
-
-                        }
-                        else if (nollaYx < 0 || nollaYx > 1)
-                        {
-                            XMLdataGridView.Rows[num].Cells[31].Style.BackColor = Color.Red;
-                            TallennaXMLButton.Enabled = false;
-
-                            virheita += "YhteisjulkaisuTutkimuslaitosKytkin pitää olla 0 (ei) tai 1 (kyllä), rivillä " + (num + 1) + ", numero: " + nollaYx + " on virheellinen arvo." + virhejulkaisuorgtunnus + ".\n\r\n\r";
-
-                            virheIlmoitus2();
-
-                            dgvc[31].HeaderCell.Style.BackColor = Color.Red;
-                            rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
-                            rowStyle.BackColor = Color.Red;
-                            XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
-
-                        }
-                    }
-                    
-
-                    // YhteisjulkaisuMuuKytkin oltava numeerinen 0 tai 1
-                    if ((rivi.Cells[32] != null) || (rivi.Cells[32].Value.ToString().Length > 0))
-                    {
-                        int nollaYx;
-
-                        if (!Int32.TryParse(rivi.Cells[32].Value.ToString().Trim(), out nollaYx))
-                        {
-                            if (!OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()))
+                            else if (nollaYx < 0 || nollaYx > 1)
                             {
                                 XMLdataGridView.Rows[num].Cells[32].Style.BackColor = Color.Red;
                                 TallennaXMLButton.Enabled = false;
 
-                                virheita += "YhteisjulkaisuMuuKytkin pitää olla numeerinen arvo (0 tai 1), rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
+                                virheita += "YhteisjulkaisuMuuKytkin pitää olla 0 (ei) tai 1 (kyllä), rivillä " + (num + 1) + ", numero: " + nollaYx + " on virheellinen arvo." + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
                                 virheIlmoitus2();
+
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "YhteisjulkaisuMuuKytkin pitää olla 0 (ei) tai 1 (kyllä), virheellinen", rivi.Cells[32].Value.ToString()); 
 
                                 dgvc[32].HeaderCell.Style.BackColor = Color.Red;
                                 rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
                                 rowStyle.BackColor = Color.Red;
                                 XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+
                             }
-
-                            if (OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()))
-                            {
-                                Boolean val = CheckKytkinkoodi(rivi.Cells[32].Value.ToString(), rivi.Cells[0].Value.ToString().Trim());
-
-                                if (!val)
-                                {
-                                    XMLdataGridView.Rows[num].Cells[32].Style.BackColor = Color.Yellow;
-                                    TallennaXMLButton.Enabled = false;
-
-                                    virheita += "YhteisjulkaisuMuuKytkin vapaaehtoinen tieto sairaaloille ja tutkimuslaitoksille. Jos muu kuin tyhjä, niin pitää olla numeerinen arvo (0 tai 1), rivillä " + (num + 1) + " Virheellinen: " + rivi.Cells[32].Value.ToString() + virhejulkaisuorgtunnus + ".\n\r\n\r";
-
-                                    virheIlmoitus2();
-
-                                    dgvc[32].HeaderCell.Style.BackColor = Color.Yellow;
-                                    rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
-                                    rowStyle.BackColor = Color.Yellow;
-                                    XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
-                                }
-                            }
-
-                        }
-                        else if (nollaYx < 0 || nollaYx > 1)
-                        {
-                            XMLdataGridView.Rows[num].Cells[32].Style.BackColor = Color.Red;
-                            TallennaXMLButton.Enabled = false;
-
-                            virheita += "YhteisjulkaisuMuuKytkin pitää olla 0 (ei) tai 1 (kyllä), rivillä " + (num + 1) + ", numero: " + nollaYx + " on virheellinen arvo." + virhejulkaisuorgtunnus + ".\n\r\n\r";
-
-                            virheIlmoitus2();
-
-                            dgvc[32].HeaderCell.Style.BackColor = Color.Red;
-                            rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
-                            rowStyle.BackColor = Color.Red;
-                            XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
-
                         }
                     }
 
 
-                    // JulkaisunKansainvalisyysKytkin oltava numeerinen 0 tai 1
-                    if ((rivi.Cells[33] != null) || (rivi.Cells[33].Value.ToString().Length > 0))
+                    if (vuosiIlmo == 2015)
                     {
-                        int nollaYx;
-
-                        if (!Int32.TryParse(rivi.Cells[33].Value.ToString().Trim(), out nollaYx))
+                        // JulkaisunKansainvalisyysKytkin oltava numeerinen 0 tai 1
+                        if ((rivi.Cells[33] != null) || (rivi.Cells[33].Value.ToString().Length > 0))
                         {
+                            int nollaYx;
 
-                            if (!OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()))
+                            if (!Int32.TryParse(rivi.Cells[33].Value.ToString().Trim(), out nollaYx))
+                            {
+
+                                if (!OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()))
+                                {
+                                    XMLdataGridView.Rows[num].Cells[33].Style.BackColor = Color.Red;
+                                    TallennaXMLButton.Enabled = false;
+
+                                    virheita += "JulkaisunKansainvalisyysKytkin pitää olla numeerinen arvo (0 tai 1), rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
+
+                                    virheIlmoitus2();
+
+                                    RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "JulkaisunKansainvalisyysKytkin pitää olla 0 (ei) tai 1 (kyllä), virheellinen", rivi.Cells[33].Value.ToString()); 
+
+                                    dgvc[33].HeaderCell.Style.BackColor = Color.Red;
+                                    rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                    rowStyle.BackColor = Color.Red;
+                                    XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                                }
+
+                                if (OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()))
+                                {
+                                    Boolean val = CheckKytkinkoodi(rivi.Cells[33].Value.ToString(), rivi.Cells[0].Value.ToString().Trim());
+
+                                    if (!val)
+                                    {
+                                        XMLdataGridView.Rows[num].Cells[33].Style.BackColor = Color.Yellow;
+                                        TallennaXMLButton.Enabled = false;
+
+                                        virheita += "JulkaisunKansainvalisyysKytkin vapaaehtoinen tieto sairaaloille ja tutkimuslaitoksille. Jos muu kuin tyhjä, niin pitää olla numeerinen arvo (0 tai 1), rivillä " + (num + 1) + " Virheellinen: " + rivi.Cells[33].Value.ToString() + virhejulkaisuorgtunnus + ".\n\r\n\r";
+
+                                        virheIlmoitus2();
+
+                                        RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "JulkaisunKansainvalisyysKytkin pitää olla 0 (ei) tai 1 (kyllä), virheellinen", rivi.Cells[33].Value.ToString()); 
+
+                                        dgvc[33].HeaderCell.Style.BackColor = Color.Yellow;
+                                        rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                        rowStyle.BackColor = Color.Yellow;
+                                        XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                                    }
+
+                                }
+
+
+                            }
+                            else if (nollaYx < 0 || nollaYx > 1)
                             {
                                 XMLdataGridView.Rows[num].Cells[33].Style.BackColor = Color.Red;
                                 TallennaXMLButton.Enabled = false;
 
-                                virheita += "JulkaisunKansainvalisyysKytkin pitää olla numeerinen arvo (0 tai 1), rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
+                                virheita += "JulkaisunKansainvalisyysKytkin pitää olla 0 (ei) tai 1 (kyllä), rivillä " + (num + 1) + ", numero: " + nollaYx + " on virheellinen arvo." + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
                                 virheIlmoitus2();
+
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "JulkaisunKansainvalisyysKytkin pitää olla 0 (ei) tai 1 (kyllä), virheellinen", rivi.Cells[33].Value.ToString()); 
 
                                 dgvc[33].HeaderCell.Style.BackColor = Color.Red;
                                 rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
                                 rowStyle.BackColor = Color.Red;
                                 XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+
                             }
+                        }
 
-                            if (OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()))
+                    }
+
+                    // JulkaisunKansainvalisyysKytkin Indeksi 33 => 30 2016
+                    if (vuosiIlmo == 2016)
+                    {
+                        // JulkaisunKansainvalisyysKytkin oltava numeerinen 0 tai 1
+                        if ((rivi.Cells[30] != null) || (rivi.Cells[30].Value.ToString().Length > 0))
+                        {
+                            int nollaYx;
+
+                            if (!Int32.TryParse(rivi.Cells[30].Value.ToString().Trim(), out nollaYx))
                             {
-                                Boolean val = CheckKytkinkoodi(rivi.Cells[33].Value.ToString(), rivi.Cells[0].Value.ToString().Trim());
 
-                                if (!val)
+                                if (!OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()))
                                 {
-                                    XMLdataGridView.Rows[num].Cells[33].Style.BackColor = Color.Yellow;
+                                    XMLdataGridView.Rows[num].Cells[30].Style.BackColor = Color.Red;
                                     TallennaXMLButton.Enabled = false;
 
-                                    virheita += "JulkaisunKansainvalisyysKytkin vapaaehtoinen tieto sairaaloille ja tutkimuslaitoksille. Jos muu kuin tyhjä, niin pitää olla numeerinen arvo (0 tai 1), rivillä " + (num + 1) + " Virheellinen: " + rivi.Cells[33].Value.ToString() + virhejulkaisuorgtunnus + ".\n\r\n\r";
+                                    virheita += "JulkaisunKansainvalisyysKytkin pitää olla numeerinen arvo (0 tai 1), rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
                                     virheIlmoitus2();
 
-                                    dgvc[33].HeaderCell.Style.BackColor = Color.Yellow;
+                                    RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "JulkaisunKansainvalisyysKytkin pitää olla 0 (ei) tai 1 (kyllä), virheellinen", rivi.Cells[30].Value.ToString()); 
+
+                                    dgvc[30].HeaderCell.Style.BackColor = Color.Red;
                                     rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
-                                    rowStyle.BackColor = Color.Yellow;
+                                    rowStyle.BackColor = Color.Red;
                                     XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
                                 }
-	
+
+                                if (OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()))
+                                {
+                                    Boolean val = CheckKytkinkoodi(rivi.Cells[30].Value.ToString(), rivi.Cells[0].Value.ToString().Trim());
+
+                                    if (!val)
+                                    {
+                                        XMLdataGridView.Rows[num].Cells[30].Style.BackColor = Color.Yellow;
+                                        TallennaXMLButton.Enabled = false;
+
+                                        virheita += "JulkaisunKansainvalisyysKytkin vapaaehtoinen tieto sairaaloille ja tutkimuslaitoksille. Jos muu kuin tyhjä, niin pitää olla numeerinen arvo (0 tai 1), rivillä " + (num + 1) + " Virheellinen: " + rivi.Cells[30].Value.ToString() + virhejulkaisuorgtunnus + ".\n\r\n\r";
+
+                                        virheIlmoitus2();
+
+                                        RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "JulkaisunKansainvalisyysKytkin pitää olla 0 (ei) tai 1 (kyllä), virheellinen", rivi.Cells[30].Value.ToString()); 
+
+                                        dgvc[30].HeaderCell.Style.BackColor = Color.Yellow;
+                                        rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                        rowStyle.BackColor = Color.Yellow;
+                                        XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                                    }
+
+                                }
+
+
                             }
+                            else if (nollaYx < 0 || nollaYx > 1)
+                            {
+                                XMLdataGridView.Rows[num].Cells[30].Style.BackColor = Color.Red;
+                                TallennaXMLButton.Enabled = false;
 
+                                virheita += "JulkaisunKansainvalisyysKytkin pitää olla 0 (ei) tai 1 (kyllä), rivillä " + (num + 1) + ", numero: " + nollaYx + " on virheellinen arvo." + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
+                                virheIlmoitus2();
+
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "JulkaisunKansainvalisyysKytkin pitää olla 0 (ei) tai 1 (kyllä), virheellinen", rivi.Cells[30].Value.ToString()); 
+
+                                dgvc[30].HeaderCell.Style.BackColor = Color.Red;
+                                rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                rowStyle.BackColor = Color.Red;
+                                XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+
+                            }
                         }
-                        else if (nollaYx < 0 || nollaYx > 1)
-                        {
-                            XMLdataGridView.Rows[num].Cells[33].Style.BackColor = Color.Red;
-                            TallennaXMLButton.Enabled = false;
 
-                            virheita += "JulkaisunKansainvalisyysKytkin pitää olla 0 (ei) tai 1 (kyllä), rivillä " + (num + 1) + ", numero: " + nollaYx + " on virheellinen arvo." + virhejulkaisuorgtunnus + ".\n\r\n\r";
-
-                            virheIlmoitus2();
-
-                            dgvc[33].HeaderCell.Style.BackColor = Color.Red;
-                            rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
-                            rowStyle.BackColor = Color.Red;
-                            XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
-
-                        }
                     }
 
 
-                    // AvoinSaatavuusKoodi oltava numeerinen 0 tai 1
-                    if ((rivi.Cells[35] != null) || (rivi.Cells[35].Value.ToString().Length > 0))
+                    if (vuosiIlmo == 2015)
                     {
-                        int nollaYx;
-
-                        if (!Int32.TryParse(rivi.Cells[35].Value.ToString().Trim(), out nollaYx))
+                        // AvoinSaatavuusKoodi oltava numeerinen 0 tai 1
+                        if ((rivi.Cells[35] != null) || (rivi.Cells[35].Value.ToString().Length > 0))
                         {
-                            if (!OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()))
+                            int nollaYx;
+
+                            if (!Int32.TryParse(rivi.Cells[35].Value.ToString().Trim(), out nollaYx))
+                            {
+                                if (!OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()))
+                                {
+                                    XMLdataGridView.Rows[num].Cells[35].Style.BackColor = Color.Red;
+                                    TallennaXMLButton.Enabled = false;
+
+                                    virheita += "AvoinSaatavuusKoodi pitää olla numeerinen arvo (0, 1, 2 tai 9), rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
+
+                                    virheIlmoitus2();
+
+                                    RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "AvoinSaatavuusKoodi pitää olla (0, 1, 2 tai 9), virheellinen", rivi.Cells[35].Value.ToString()); 
+
+                                    dgvc[35].HeaderCell.Style.BackColor = Color.Red;
+                                    rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                    rowStyle.BackColor = Color.Red;
+                                    XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                                }
+
+                                if (OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()))
+                                {
+                                    Boolean val = CheckKytkinkoodi(rivi.Cells[35].Value.ToString(), rivi.Cells[0].Value.ToString().Trim());
+
+                                    if (!val)
+                                    {
+                                        XMLdataGridView.Rows[num].Cells[35].Style.BackColor = Color.Yellow;
+                                        TallennaXMLButton.Enabled = false;
+
+                                        virheita += "AvoinSaatavuusKoodi vapaaehtoinen tieto sairaaloille ja tutkimuslaitoksille. Jos muu kuin tyhjä, niin pitää olla numeerinen arvo (0 tai 1), rivillä " + (num + 1) + " Virheellinen: " + rivi.Cells[35].Value.ToString() + virhejulkaisuorgtunnus + ".\n\r\n\r";
+
+                                        virheIlmoitus2();
+
+                                        RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "AvoinSaatavuusKoodi pitää olla (0, 1, 2 tai 9), virheellinen", rivi.Cells[35].Value.ToString()); 
+
+                                        dgvc[35].HeaderCell.Style.BackColor = Color.Yellow;
+                                        rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                        rowStyle.BackColor = Color.Yellow;
+                                        XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                                    }
+                                }
+
+                            }
+                            else if (nollaYx < 0 || (nollaYx > 2 && nollaYx != 9))
                             {
                                 XMLdataGridView.Rows[num].Cells[35].Style.BackColor = Color.Red;
                                 TallennaXMLButton.Enabled = false;
 
-                                virheita += "AvoinSaatavuusKoodi pitää olla numeerinen arvo (0, 1, 2 tai 9), rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
+                                virheita += "AvoinSaatavuusKoodi pitää olla (0, 1, 2 tai 9), rivillä " + (num + 1) + ", numero: " + nollaYx + " on virheellinen arvo" + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
                                 virheIlmoitus2();
+
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "AvoinSaatavuusKoodi pitää olla (0, 1, 2 tai 9), virheellinen", rivi.Cells[35].Value.ToString()); 
 
                                 dgvc[35].HeaderCell.Style.BackColor = Color.Red;
                                 rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
                                 rowStyle.BackColor = Color.Red;
                                 XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+
                             }
+                        }
 
-                            if (OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()))
+                    }
+
+                    // AvoinSaatavuusKoodi Indeksi 35 => 32 2016
+                    if (vuosiIlmo == 2016)
+                    {
+                        // AvoinSaatavuusKoodi oltava numeerinen 0 tai 1
+                        if ((rivi.Cells[32] != null) || (rivi.Cells[32].Value.ToString().Length > 0))
+                        {
+                            int nollaYx;
+
+                            if (!Int32.TryParse(rivi.Cells[32].Value.ToString().Trim(), out nollaYx))
                             {
-                                Boolean val = CheckKytkinkoodi(rivi.Cells[35].Value.ToString(), rivi.Cells[0].Value.ToString().Trim());
-
-                                if (!val)
+                                if (!OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()))
                                 {
-                                    XMLdataGridView.Rows[num].Cells[35].Style.BackColor = Color.Yellow;
+                                    XMLdataGridView.Rows[num].Cells[32].Style.BackColor = Color.Red;
                                     TallennaXMLButton.Enabled = false;
 
-                                    virheita += "AvoinSaatavuusKoodi vapaaehtoinen tieto sairaaloille ja tutkimuslaitoksille. Jos muu kuin tyhjä, niin pitää olla numeerinen arvo (0 tai 1), rivillä " + (num + 1) + " Virheellinen: " + rivi.Cells[35].Value.ToString() + virhejulkaisuorgtunnus + ".\n\r\n\r";
+                                    virheita += "AvoinSaatavuusKoodi pitää olla numeerinen arvo (0, 1, 2 tai 9), rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
                                     virheIlmoitus2();
 
-                                    dgvc[35].HeaderCell.Style.BackColor = Color.Yellow;
+                                    RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "AvoinSaatavuusKoodi pitää olla (0, 1, 2 tai 9), virheellinen", rivi.Cells[32].Value.ToString()); 
+
+                                    dgvc[32].HeaderCell.Style.BackColor = Color.Red;
                                     rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
-                                    rowStyle.BackColor = Color.Yellow;
+                                    rowStyle.BackColor = Color.Red;
                                     XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
                                 }
+
+                                if (OnkoSairaalaTutkimus(rivi.Cells[0].Value.ToString().Trim()))
+                                {
+                                    Boolean val = CheckKytkinkoodi(rivi.Cells[32].Value.ToString(), rivi.Cells[0].Value.ToString().Trim());
+
+                                    if (!val)
+                                    {
+                                        XMLdataGridView.Rows[num].Cells[32].Style.BackColor = Color.Yellow;
+                                        TallennaXMLButton.Enabled = false;
+
+                                        virheita += "AvoinSaatavuusKoodi vapaaehtoinen tieto sairaaloille ja tutkimuslaitoksille. Jos muu kuin tyhjä, niin pitää olla numeerinen arvo (0 tai 1), rivillä " + (num + 1) + " Virheellinen: " + rivi.Cells[32].Value.ToString() + virhejulkaisuorgtunnus + ".\n\r\n\r";
+
+                                        virheIlmoitus2();
+
+                                        RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "AvoinSaatavuusKoodi pitää olla (0, 1, 2 tai 9), virheellinen", rivi.Cells[32].Value.ToString()); 
+
+                                        dgvc[32].HeaderCell.Style.BackColor = Color.Yellow;
+                                        rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                        rowStyle.BackColor = Color.Yellow;
+                                        XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                                    }
+                                }
+
                             }
+                            else if (nollaYx < 0 || (nollaYx > 2 && nollaYx != 9))
+                            {
+                                XMLdataGridView.Rows[num].Cells[32].Style.BackColor = Color.Red;
+                                TallennaXMLButton.Enabled = false;
 
-                        }
-                        else if (nollaYx < 0 || (nollaYx > 2 && nollaYx != 9))
-                        {
-                            XMLdataGridView.Rows[num].Cells[35].Style.BackColor = Color.Red;
-                            TallennaXMLButton.Enabled = false;
+                                virheita += "AvoinSaatavuusKoodi pitää olla (0, 1, 2 tai 9), rivillä " + (num + 1) + ", numero: " + nollaYx + " on virheellinen arvo" + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
-                            virheita += "AvoinSaatavuusKoodi pitää olla (0, 1, 2 tai 9), rivillä " + (num + 1) + ", numero: " + nollaYx + " on virheellinen arvo" + virhejulkaisuorgtunnus + ".\n\r\n\r";
+                                virheIlmoitus2();
 
-                            virheIlmoitus2();
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "AvoinSaatavuusKoodi pitää olla (0, 1, 2 tai 9), virheellinen", rivi.Cells[32].Value.ToString()); 
 
-                            dgvc[35].HeaderCell.Style.BackColor = Color.Red;
-                            rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
-                            rowStyle.BackColor = Color.Red;
-                            XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                                dgvc[32].HeaderCell.Style.BackColor = Color.Red;
+                                rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                rowStyle.BackColor = Color.Red;
+                                XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
 
+                            }
                         }
                     }
+
 
                     // JufoTunnus oltava numeerinen (4 - 5 numeroa)
                     if (((rivi.Cells[14].Value.ToString().Trim().Length > 0)))
@@ -4511,6 +5088,8 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
                             virheIlmoitus2();
 
+                            RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "JufoTunnus pitää olla (4 - 5 numeroa) virheellinen", rivi.Cells[14].Value.ToString()); 
+
                             dgvc[14].HeaderCell.Style.BackColor = Color.Red;
                             rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
                             rowStyle.BackColor = Color.Red;
@@ -4525,6 +5104,8 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
                             virheIlmoitus2();
 
+                            RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "JufoTunnus pitää olla (4 - 5 numeroa) virheellinen", rivi.Cells[14].Value.ToString()); 
+
                             dgvc[14].HeaderCell.Style.BackColor = Color.Red;
                             rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
                             rowStyle.BackColor = Color.Red;
@@ -4533,113 +5114,268 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                         }
                     }
 
-                    // EVOjulkaisuKytkin oltava numeerinen  (1)
-                    if ((rivi.Cells[36] != null) || (rivi.Cells[36].Value.ToString().Trim().Length > 0))
+                    if (vuosiIlmo == 2015)
                     {
-                        int nollaYx;
-
-                        if (!Int32.TryParse(rivi.Cells[36].Value.ToString().Trim(), out nollaYx)  && (rivi.Cells[36].Value.ToString().Trim().Length > 0 ) )
+                        // EVOjulkaisuKytkin oltava numeerinen  (1)
+                        if ((rivi.Cells[36] != null) || (rivi.Cells[36].Value.ToString().Trim().Length > 0))
                         {
-                            XMLdataGridView.Rows[num].Cells[36].Style.BackColor = Color.Red;
-                            TallennaXMLButton.Enabled = false;
+                            int nollaYx;
 
-                            virheita += "EVOjulkaisuKytkin pitää olla numeerinen arvo (1), rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
+                            if (!Int32.TryParse(rivi.Cells[36].Value.ToString().Trim(), out nollaYx) && (rivi.Cells[36].Value.ToString().Trim().Length > 0))
+                            {
+                                XMLdataGridView.Rows[num].Cells[36].Style.BackColor = Color.Red;
+                                TallennaXMLButton.Enabled = false;
 
-                            virheIlmoitus2();
+                                virheita += "EVOjulkaisuKytkin pitää olla numeerinen arvo (1), rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
 
-                            dgvc[36].HeaderCell.Style.BackColor = Color.Red;
-                            rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
-                            rowStyle.BackColor = Color.Red;
-                            XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
-                        }
-                        else if ( nollaYx != 1 && (rivi.Cells[36].Value.ToString().Trim().Length > 0 ))
-                        {
-                            XMLdataGridView.Rows[num].Cells[36].Style.BackColor = Color.Red;
-                            TallennaXMLButton.Enabled = false;
+                                virheIlmoitus2();
 
-                            virheita += "EVOjulkaisuKytkin pitää olla 1 (kyllä), rivillä " + (num + 1) + ", numero: " + nollaYx + " on virheellinen arvo." + virhejulkaisuorgtunnus + ".\n\r\n\r";
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "EVOjulkaisuKytkin pitää olla 1 (kyllä) virheellinen", rivi.Cells[36].Value.ToString()); 
 
-                            virheIlmoitus2();
+                                dgvc[36].HeaderCell.Style.BackColor = Color.Red;
+                                rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                rowStyle.BackColor = Color.Red;
+                                XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                            }
+                            else if (nollaYx != 1 && (rivi.Cells[36].Value.ToString().Trim().Length > 0))
+                            {
+                                XMLdataGridView.Rows[num].Cells[36].Style.BackColor = Color.Red;
+                                TallennaXMLButton.Enabled = false;
 
-                            dgvc[36].HeaderCell.Style.BackColor = Color.Red;
-                            rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
-                            rowStyle.BackColor = Color.Red;
-                            XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                                virheita += "EVOjulkaisuKytkin pitää olla 1 (kyllä), rivillä " + (num + 1) + ", numero: " + nollaYx + " on virheellinen arvo." + virhejulkaisuorgtunnus + ".\n\r\n\r";
+
+                                virheIlmoitus2();
+
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "EVOjulkaisuKytkin pitää olla 1 (kyllä) virheellinen", rivi.Cells[36].Value.ToString()); 
+
+                                dgvc[36].HeaderCell.Style.BackColor = Color.Red;
+                                rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                rowStyle.BackColor = Color.Red;
+                                XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                            }
                         }
                     }
 
                     // Tarkista DOI 
                     // Siivotaan välilyöntejä veke
-                    if ((rivi.Cells[37].Value.ToString().Trim().Length > 0))
+                    if (vuosiIlmo == 2015)
                     {
-                        string doi = Regex.Replace(rivi.Cells[37].Value.ToString(), " ", ""); // Ei välilyöntejä	
-                        rivi.Cells[37].Value = doi;
 
-                        bool val = TarkistaDOI(rivi.Cells[37].Value.ToString());
-
-                        if (!val )
+                        if ((rivi.Cells[37].Value.ToString().Trim().Length > 0))
                         {
-                            XMLdataGridView.Rows[num].Cells[37].Style.BackColor = Color.Red;
-                            TallennaXMLButton.Enabled = false;
+                            string doi = Regex.Replace(rivi.Cells[37].Value.ToString(), " ", ""); // Ei välilyöntejä	
+                            rivi.Cells[37].Value = doi;
 
-                            virheita += "DOI: " + rivi.Cells[37].Value.ToString() + " virheellinen, rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
-                            virheIlmoitus2();
+                            bool val = TarkistaDOI(rivi.Cells[37].Value.ToString());
 
-                            dgvc[37].HeaderCell.Style.BackColor = Color.Red;
-                            rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
-                            rowStyle.BackColor = Color.Red;
-                            XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                            if (!val)
+                            {
+                                XMLdataGridView.Rows[num].Cells[37].Style.BackColor = Color.Red;
+                                TallennaXMLButton.Enabled = false;
+
+                                virheita += "DOI: " + rivi.Cells[37].Value.ToString() + " virheellinen, rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
+                                virheIlmoitus2();
+
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "DOI virheellinen", rivi.Cells[37].Value.ToString()); 
+
+                                dgvc[37].HeaderCell.Style.BackColor = Color.Red;
+                                rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                rowStyle.BackColor = Color.Red;
+                                XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                            }
                         }
+
                     }
+
+
+                    if (vuosiIlmo == 2016)
+                    {
+
+                        if ((rivi.Cells[36].Value.ToString().Trim().Length > 0))
+                        {
+                            string doi = Regex.Replace(rivi.Cells[36].Value.ToString(), " ", ""); // Ei välilyöntejä	
+                            rivi.Cells[36].Value = doi;
+
+                            bool val = TarkistaDOI(rivi.Cells[36].Value.ToString());
+
+                            if (!val)
+                            {
+                                XMLdataGridView.Rows[num].Cells[36].Style.BackColor = Color.Red;
+                                TallennaXMLButton.Enabled = false;
+
+                                virheita += "DOI: " + rivi.Cells[36].Value.ToString() + " virheellinen, rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
+                                virheIlmoitus2();
+
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "DOI virheellinen", rivi.Cells[36].Value.ToString()); 
+
+                                dgvc[36].HeaderCell.Style.BackColor = Color.Red;
+                                rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                rowStyle.BackColor = Color.Red;
+                                XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                            }
+                        }
+
+                    }
+
 
                     // Tarkista Pysyvä osoite 
-                    // Siivotaan välilyöntejä veke
-                    if ( (rivi.Cells[38].Value.ToString().Trim().Length > 0) )
+                    // Siivotaan välilyöntejä veke tuplia http ja doi/DOI
+                    // Lisätään http://urn.fi jos puuttuu
+
+                    if (vuosiIlmo == 2015)
                     {
-                        string osoite = Regex.Replace(rivi.Cells[38].Value.ToString(), " ", ""); // Ei välilyöntejä	
-                        rivi.Cells[38].Value = osoite;
 
-                        bool val = TarkistaOsoite(rivi.Cells[38].Value.ToString());
-
-                        if (!val)
+                        if ((rivi.Cells[38].Value.ToString().Trim().Length > 0))
                         {
-                            XMLdataGridView.Rows[num].Cells[38].Style.BackColor = Color.Red;
-                            TallennaXMLButton.Enabled = false;
+                            string osoite = Regex.Replace(rivi.Cells[38].Value.ToString(), " ", ""); // Ei välilyöntejä	
 
-                            virheita += "Osoite: " + rivi.Cells[38].Value.ToString() + " virheellinen, rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
-                            virheIlmoitus2();
+                            osoite = Regex.Replace(osoite, "http://http://", "http://");            // Ei tupla http://
 
-                            dgvc[38].HeaderCell.Style.BackColor = Color.Red;
-                            rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
-                            rowStyle.BackColor = Color.Red;
-                            XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                            osoite = Regex.Replace(osoite, "doi:", "");            // Ei doi:
+                            osoite = Regex.Replace(osoite, "DOI:", "");            // Ei DOI:
+
+                            rivi.Cells[38].Value = osoite;
+
+                            if (osoite.Contains("URN:ISBN:") && !TarkistaOsoite(osoite))
+                            {
+
+                                string korjattu_urn_osoite = "http://urn.fi/" + osoite;
+
+                                errorTextBox.AppendText("Korjataan pysyvä osoite: " + rivi.Cells[38].Value.ToString() + " => " + korjattu_urn_osoite + " rivillä: " + (num + 1) + "\n\r\n\r");
+
+                                if (LokiOlemassa(masterloki))
+                                {
+                                    KirjoitaLokiin("Korjataan pysyvä osoite : " + rivi.Cells[38].Value.ToString() + " => " + korjattu_urn_osoite + "\n\r\n\r", masterloki);
+                                }
+
+                                rivi.Cells[38].Value = korjattu_urn_osoite;
+
+                            }
+
+
+                            bool val = TarkistaOsoite(rivi.Cells[38].Value.ToString());
+
+                            if (!val)
+                            {
+                                XMLdataGridView.Rows[num].Cells[38].Style.BackColor = Color.Red;
+                                TallennaXMLButton.Enabled = false;
+
+                                virheita += "Osoite: " + rivi.Cells[38].Value.ToString() + " virheellinen, rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
+                                virheIlmoitus2();
+
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Osoite virheellinen", rivi.Cells[38].Value.ToString()); 
+
+                                dgvc[38].HeaderCell.Style.BackColor = Color.Red;
+                                rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                rowStyle.BackColor = Color.Red;
+                                XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                            }
+                        }
+
+                    }
+                    
+
+                    if (vuosiIlmo == 2016)
+                    {
+                        if ((rivi.Cells[37].Value.ToString().Trim().Length > 0))
+                        {
+                            string osoite = Regex.Replace(rivi.Cells[37].Value.ToString(), " ", ""); // Ei välilyöntejä	
+
+                            osoite = Regex.Replace(osoite, "http://http://", "http://");            // Ei tupla http://
+
+                            osoite = Regex.Replace(osoite, "doi:", "");            // Ei doi:
+                            osoite = Regex.Replace(osoite, "DOI:", "");            // Ei DOI:
+
+                            rivi.Cells[37].Value = osoite;
+
+                            if (osoite.Contains("URN:ISBN:") && !TarkistaOsoite(osoite))
+                            {
+
+                                string korjattu_urn_osoite = "http://urn.fi/" + osoite;
+
+                                errorTextBox.AppendText("Korjataan pysyvä osoite: " + rivi.Cells[37].Value.ToString() + " => " + korjattu_urn_osoite + " rivillä: " + (num + 1) + "\n\r\n\r");
+
+                                if (LokiOlemassa(masterloki))
+                                {
+                                    KirjoitaLokiin("Korjataan pysyvä osoite : " + rivi.Cells[37].Value.ToString() + " => " + korjattu_urn_osoite + "\n\r\n\r", masterloki);
+                                }
+
+                                rivi.Cells[37].Value = korjattu_urn_osoite;
+                            }
+
+                            bool val = TarkistaOsoite(rivi.Cells[37].Value.ToString());
+
+                            if (!val)
+                            {
+                                XMLdataGridView.Rows[num].Cells[37].Style.BackColor = Color.Red;
+                                TallennaXMLButton.Enabled = false;
+
+                                virheita += "Osoite: " + rivi.Cells[37].Value.ToString() + " virheellinen, rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
+                                virheIlmoitus2();
+
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Osoite virheellinen", rivi.Cells[37].Value.ToString()); 
+
+                                dgvc[37].HeaderCell.Style.BackColor = Color.Red;
+                                rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                rowStyle.BackColor = Color.Red;
+                                XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                            }
+                        }
+
+                    }
+
+                    if (vuosiIlmo == 2015)
+                    {
+                        // Tarkista ORCID
+                        if ((rivi.Cells[43].Value.ToString().Trim().Length > 0))
+                        {
+                            bool val = TarkistaORCIDArvot(rivi.Cells[43].Value.ToString());
+
+                            if (!val)
+                            {
+                                XMLdataGridView.Rows[num].Cells[43].Style.BackColor = Color.Red;
+                                TallennaXMLButton.Enabled = false;
+
+                                virheita += "ORCID: " + rivi.Cells[43].Value.ToString() + " virheellinen, rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
+                                virheIlmoitus2();
+
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "ORCID virheellinen", rivi.Cells[43].Value.ToString()); 
+
+                                dgvc[43].HeaderCell.Style.BackColor = Color.Red;
+                                rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                rowStyle.BackColor = Color.Red;
+                                XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                            }
+                        }
+                    }
+                    
+
+                    if (vuosiIlmo == 2016)
+                    {
+                        // Tarkista ORCID
+                        if ((rivi.Cells[42].Value.ToString().Trim().Length > 0))
+                        {
+                            bool val = TarkistaORCIDArvot(rivi.Cells[42].Value.ToString());
+
+                            if (!val)
+                            {
+                                XMLdataGridView.Rows[num].Cells[42].Style.BackColor = Color.Red;
+                                TallennaXMLButton.Enabled = false;
+
+                                virheita += "ORCID: " + rivi.Cells[42].Value.ToString() + " virheellinen, rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
+                                virheIlmoitus2();
+
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "ORCID virheellinen", rivi.Cells[42].Value.ToString()); 
+
+                                dgvc[42].HeaderCell.Style.BackColor = Color.Red;
+                                rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                rowStyle.BackColor = Color.Red;
+                                XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                            }
                         }
                     }
 
-
-                    // Tarkista ORCID
-                    if ((rivi.Cells[43].Value.ToString().Trim().Length > 0))
-                    {
-                        bool val = TarkistaORCIDArvot(rivi.Cells[43].Value.ToString());
-
-                        if (!val)
-                        {
-                            XMLdataGridView.Rows[num].Cells[43].Style.BackColor = Color.Red;
-                            TallennaXMLButton.Enabled = false;
-
-                            virheita += "ORCID: " + rivi.Cells[43].Value.ToString() + " virheellinen, rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
-                            virheIlmoitus2();
-
-                            dgvc[43].HeaderCell.Style.BackColor = Color.Red;
-                            rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
-                            rowStyle.BackColor = Color.Red;
-                            XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
-                        }
-                    }
-
-
-
-
+             
                     // 12	 AvainsanaTeksti korjataan jos on väärä välimerkki, pilkut puolipisteeksi
                     if ((rivi.Cells[12] != null) && (rivi.Cells[12].Value.ToString().Trim().Length > 0))
                     {
@@ -4664,9 +5400,171 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                     }
 
 
+                    // YhteisjulkaisuYritysKytkin
+                    if (vuosiIlmo == 2016)
+                    {
+                        // YhteisjulkaisuYritysKytkin oltava numeerinen 0 tai 1
+                        if ((rivi.Cells[33] != null) || (rivi.Cells[33].Value.ToString().Length > 0))
+                        {
+                            int nollaYx;
+
+                            if (!Int32.TryParse(rivi.Cells[33].Value.ToString().Trim(), out nollaYx))
+                            {
+                                XMLdataGridView.Rows[num].Cells[33].Style.BackColor = Color.Red;
+                                TallennaXMLButton.Enabled = false;
+
+                                virheita += "YhteisjulkaisuYritysKytkin pitää olla numeerinen arvo (0 tai 1), rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
+
+                                virheIlmoitus2();
+
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "YhteisjulkaisuYritysKytkin 0 (ei) tai 1 (kyllä) virheellinen arvo ", rivi.Cells[33].Value.ToString()); 
+
+                                dgvc[33].HeaderCell.Style.BackColor = Color.Red;
+                                rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                rowStyle.BackColor = Color.Red;
+                                XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+
+                                Boolean val = CheckKytkinkoodi(rivi.Cells[33].Value.ToString(), rivi.Cells[0].Value.ToString().Trim());
+
+                                if (!val)
+                                {
+                                    XMLdataGridView.Rows[num].Cells[33].Style.BackColor = Color.Yellow;
+                                    TallennaXMLButton.Enabled = false;
+
+                                    virheita += "YhteisjulkaisuYritysKytkin koodi rivillä " + (num + 1) + " virheellinen: " + rivi.Cells[33].Value.ToString() + virhejulkaisuorgtunnus + ".\n\r\n\r";
+
+                                    virheIlmoitus2();
+
+                                    RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "YhteisjulkaisuYritysKytkin 0 (ei) tai 1 (kyllä) virheellinen arvo ", rivi.Cells[33].Value.ToString()); 
+
+                                    dgvc[33].HeaderCell.Style.BackColor = Color.Yellow;
+                                    rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                    rowStyle.BackColor = Color.Yellow;
+                                    XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                                }
+                            }
+                            else if (nollaYx < 0 || nollaYx > 1)
+                            {
+                                XMLdataGridView.Rows[num].Cells[33].Style.BackColor = Color.Red;
+                                TallennaXMLButton.Enabled = false;
+
+                                virheita += "YhteisjulkaisuYritysKytkin pitää olla 0 (ei) tai 1 (kyllä), rivillä " + (num + 1) + ", numero: " + nollaYx + " on virheellinen arvo." + virhejulkaisuorgtunnus + ".\n\r\n\r";
+
+                                virheIlmoitus2();
+
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "YhteisjulkaisuYritysKytkin 0 (ei) tai 1 (kyllä) virheellinen arvo ", rivi.Cells[33].Value.ToString()); 
+
+                                dgvc[33].HeaderCell.Style.BackColor = Color.Red;
+                                rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                rowStyle.BackColor = Color.Red;
+                                XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                            }
+                        }
+                    }
+
+                    // RinnakkaistallennettuKytkin
+                    if (vuosiIlmo == 2016)
+                    {
+                        // RinnakkaistallennettuKytkin on oltava numeerinen 0 tai 1
+                        if ((rivi.Cells[34] != null) || (rivi.Cells[34].Value.ToString().Length > 0))
+                        {
+                            int nollaYx;
+
+                            if (!Int32.TryParse(rivi.Cells[34].Value.ToString().Trim(), out nollaYx))
+                            {
+                                XMLdataGridView.Rows[num].Cells[34].Style.BackColor = Color.Red;
+                                TallennaXMLButton.Enabled = false;
+
+                                virheita += "RinnakkaistallennettuKytkin pitää olla numeerinen arvo (0 tai 1), rivillä " + (num + 1) + virhejulkaisuorgtunnus + ".\n\r\n\r";
+
+                                virheIlmoitus2();
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "RinnakkaistallennettuKytkin 0 (ei) tai 1 (kyllä) virheellinen arvo ", rivi.Cells[34].Value.ToString()); 
+
+                                dgvc[34].HeaderCell.Style.BackColor = Color.Red;
+                                rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                rowStyle.BackColor = Color.Red;
+                                XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+
+                                Boolean val = CheckKytkinkoodi(rivi.Cells[34].Value.ToString(), rivi.Cells[0].Value.ToString().Trim());
+
+                                if (!val)
+                                {
+                                    XMLdataGridView.Rows[num].Cells[34].Style.BackColor = Color.Yellow;
+                                    TallennaXMLButton.Enabled = false;
+
+                                    virheita += "RinnakkaistallennettuKytkin koodi rivillä " + (num + 1) + " virheellinen: " + rivi.Cells[34].Value.ToString() + virhejulkaisuorgtunnus + ".\n\r\n\r";
+
+                                    virheIlmoitus2();
+                                    RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "RinnakkaistallennettuKytkin 0 (ei) tai 1 (kyllä) virheellinen arvo ", rivi.Cells[34].Value.ToString()); 
+
+                                    dgvc[34].HeaderCell.Style.BackColor = Color.Yellow;
+                                    rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                    rowStyle.BackColor = Color.Yellow;
+                                    XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                                }
+                            }
+                            else if (nollaYx < 0 || nollaYx > 1)
+                            {
+                                XMLdataGridView.Rows[num].Cells[34].Style.BackColor = Color.Red;
+                                TallennaXMLButton.Enabled = false;
+
+                                virheita += "RinnakkaistallennettuKytkin pitää olla 0 (ei) tai 1 (kyllä), rivillä " + (num + 1) + ", numero: " + nollaYx + " on virheellinen arvo." + virhejulkaisuorgtunnus + ".\n\r\n\r";
+
+                                virheIlmoitus2();
+
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "RinnakkaistallennettuKytkin 0 (ei) tai 1 (kyllä) virheellinen arvo ", rivi.Cells[34].Value.ToString()); 
+
+                                dgvc[34].HeaderCell.Style.BackColor = Color.Red;
+                                rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                rowStyle.BackColor = Color.Red;
+                                XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+                            }
+
+                            if (nollaYx == 1 && rivi.Cells[35].Value.ToString().Trim().Length == 0)
+                            {
+                                XMLdataGridView.Rows[num].Cells[34].Style.BackColor = Color.Red;
+                                XMLdataGridView.Rows[num].Cells[35].Style.BackColor = Color.Red;
+
+                                TallennaXMLButton.Enabled = false;
+
+                                virheita += "Jos rinnakkaistallennettu julkaisun arvo on 1 (kyllä), rivillä " + (num + 1) + ", pitää olla myös rinnakkaistallennetun version verkkoosoite ." + virhejulkaisuorgtunnus + ".\n\r\n\r";
+
+                                virheIlmoitus2();
+
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Rinnakkaistallennetun verkko-osoite puuttuu", rivi.Cells[35].Value.ToString()); 
+
+                                dgvc[34].HeaderCell.Style.BackColor = Color.Red;
+                                dgvc[35].HeaderCell.Style.BackColor = Color.Red;
+                                rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                rowStyle.BackColor = Color.Red;
+                                XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+
+                            }
+
+                            if (nollaYx == 1 && !TarkistaOsoite(rivi.Cells[35].Value.ToString().Trim()))
+                            {
+                                XMLdataGridView.Rows[num].Cells[35].Style.BackColor = Color.Red;
+
+                                TallennaXMLButton.Enabled = false;
+
+                                virheita += "Rinnakkaistallennetun verkko-osoite: " + rivi.Cells[35].Value.ToString().Trim() + " virheellinen, " + virhejulkaisuorgtunnus + ".\n\r\n\r";
+
+                                virheIlmoitus2();
+
+                                RekisteroiVirheet("VIRHE", rivi.Cells[4].Value.ToString().Trim(), (num + 1).ToString(), "Rinnakkaistallennetun verkko-osoite", rivi.Cells[35].Value.ToString()); 
+
+                                dgvc[35].HeaderCell.Style.BackColor = Color.Red;
+                                rowStyle = XMLdataGridView.Rows[num].HeaderCell.Style;
+                                rowStyle.BackColor = Color.Red;
+                                XMLdataGridView.Rows[num].HeaderCell.Style = rowStyle;
+
+                            }
+                        }
+
+                    }                    
 
 
-                    // Lisää tarkistuksiä ... ?
+                    // Lisää tarkistuksiä ... ? Ei.
 
                     num++;  // Rivinro laskuri
                 }
@@ -4696,16 +5594,26 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
                         KirjoitaLokiin(virheita, masterloki);
                     }
+
+                    CSV_virhe_LokiTiedosto(csvtarkistusloki);
+
+                    KirjoitaCSVTarkistustiedosto(virheTaulukko);
+
                 }
                 else
                 {                
                     if (LokiOlemassa(masterloki))
                     {
-                        MessageBox.Show("Paljon virheitä. Katso loki tiedosto", "Virheitä ainestossa!");
-                        errorTextBox.AppendText("Paljon virheitä. Tarkista loki-tiedosto: Työkalut/Avaa lokitiedosto valikon kautta tai paina CTRL+L");
+                        MessageBox.Show("Tosi paljon virheitä. Katso ihmeessä lokitiedosto", "Paljon virheitä ainestossa!");
+                        errorTextBox.AppendText("Tosi paljon virheitä. Tarkista loki-tiedosto: Työkalut/Avaa lokitiedosto valikon kautta tai paina CTRL+L");
 
                         KirjoitaLokiin(virheita, masterloki);
                     }
+
+                    CSV_virhe_LokiTiedosto(csvtarkistusloki);
+
+                    KirjoitaCSVTarkistustiedosto(virheTaulukko);
+
                 }
 
             }
@@ -4723,6 +5631,8 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                 if (LokiOlemassa(masterloki))
                 {
                     KirjoitaLokiin("Tiedot validoitu. XML-tiedoston voi luoda", masterloki);
+                    
+                    CSV_virhe_LokiTiedosto(csvtarkistusloki);
                 }
 
             }
@@ -4743,6 +5653,41 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
                 MessageBox.Show("Ei voida avata!" + getXMLTiedosto() );
             }
         }
+
+
+        // Kirjoitetaan csv-tarkistustiedosto
+        private void KirjoitaCSVTarkistustiedosto(DataTable dt)
+        {
+            StreamWriter strom = new StreamWriter("tarkistusloki.csv", true);           
+
+            int sarLkm = dt.Columns.Count;
+
+            // Sarakkeet
+            for (int i = 0; i < sarLkm; i++)
+            {
+                strom.Write(dt.Columns[i]);
+
+                if (i < sarLkm )
+                {
+                    strom.Write(";");
+                }
+            }
+            strom.Write(strom.NewLine);
+
+            // virheet per rivi, sarakkeittain
+            foreach (DataRow dr in dt.Rows)
+            {
+                for (int i = 0; i < sarLkm; i++)
+                {
+
+                    strom.Write(dr[i].ToString());
+                }
+                strom.Write(strom.NewLine);
+            }
+            strom.Close();
+        }
+
+
 
         // Validoidaan viimeisin XML-tiedosto julkaisut.xsd scheemaa vasten
         private void ValidoiXMLButton_Click(object sender, EventArgs e)
@@ -4834,7 +5779,7 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
             }
             catch (Exception esx)
             {
-                MessageBox.Show("Virhe: Ei validi! Error: " + esx.Message);
+                // MessageBox.Show("Virhe: Ei validi! Error: " + esx.Message);
                 err = true;
                 
 
@@ -4966,6 +5911,110 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
             {
                 MessageBox.Show("Ei voida avata " + masterloki + " tiedostoa!");
             }
+
+        }
+
+        // Näytetään tarkistus csv-data Datagridissä
+        private void DrawTarkistusDataGridView(List<string[]> parsedData, DataGridView dgv, int n)
+        {
+            dgv.Rows.Clear();
+            dgv.ColumnCount = n; // Note to myself Dynaamiseksi kiitos! 
+
+            int maximi = dgv.ColumnCount;
+
+            try
+            {
+                // Nice-to-have sarakkeiden nimet luetusta csv:stä
+                for (int i = 0; i < maximi; i++)
+                {
+                    var sb = new StringBuilder(parsedData[0][i]);
+                    dgv.Columns[i].Name = sb.ToString();
+                }
+
+                foreach (string[] row in parsedData)
+                {
+                    dgv.Rows.Add(row);
+                }
+
+                dgv.Rows.Remove(dgv.Rows[0]);
+
+            }
+            catch (Exception e)
+            {
+                MessageBox.Show("Virhe tarkistus csv-ainestoa luettaessa: " + e.Message);
+            }
+
+        }
+
+        // Avataan csv-tarkistustiedosto
+        private void avaaCsvtarkistustiedostoToolStripMenuItem_Click(object sender, EventArgs e)
+        {      
+            try { 
+
+                    TarkistusAineisto csvAineisto = new TarkistusAineisto();
+
+                    csvAineisto.TarkistusDataGridView.DataSource = null;
+
+                    int numRiveja = MontakoRivia(Path.GetFileName(csvtarkistusloki));
+
+                    if (numRiveja > 0)
+                    { 
+                            OleDbConnection yhteys = new OleDbConnection(@"Provider=Microsoft.Jet.OLEDB.4.0;Data Source=" + Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) + ";Extended Properties=\"text;HDR=Yes;Format=Delimited(;)\";");
+
+                            OleDbDataAdapter dataAdapteri = new OleDbDataAdapter("select * from [" + Path.GetFileName(csvtarkistusloki) + "]", yhteys);
+
+                            DataTable dataTaulu = new DataTable();
+                            dataAdapteri.Fill(dataTaulu);
+
+                            csvAineisto.TarkistusDataGridView.DataSource = dataTaulu;             
+                            yhteys.Close();
+
+                            csvAineisto.TarkistusDataGridView.DataSource = null;
+                            List<string[]> tarkistusCsvData = null;
+
+                            tarkistusCsvData = LueCSVDataa( Path.GetFileName(csvtarkistusloki), ';');
+
+                            int numSarakkeita = MontakoSaraketta( Path.GetFileName(csvtarkistusloki), ';');
+                   
+                            DrawTarkistusDataGridView(tarkistusCsvData, csvAineisto.TarkistusDataGridView, numSarakkeita);                   
+                            csvAineisto.ShowDialog();
+                    }
+
+            }
+            catch (Exception Excelex)
+            {
+                MessageBox.Show("Error: " + Excelex.Message);
+            }          
+
+
+        }
+
+
+        // Avataan Excelissä muutetaan puolipiste kopion kautta sarkainerotin niin Excel osaa ryhmittää text to columns automaattisesti
+        public static void AvaaCSVExcelissa()
+        {
+            var ExcelApp = new Excel.Application();
+
+            var path = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+            string line, line2;
+
+            StreamReader file = new StreamReader(Path.GetFileName(csvtarkistusloki));
+            StreamWriter file2 = new StreamWriter("tarkistusaineisto.txt", false);
+
+            while ((line = file.ReadLine()) != null)
+            {
+                line2 = line.Substring(0, line.Length -1 );
+                line2 = line2.Replace(";", "\t");               
+                file2.WriteLine(line2);                
+            }
+
+            file.Close();
+            file2.Close();         
+
+            ExcelApp.Workbooks.OpenText( path + "\\" + Path.GetFileName("tarkistusaineisto.txt")
+                                            , Excel.XlPlatform.xlWindows	                                        , 1	                                        , Excel.XlTextParsingType.xlDelimited
+                                            , Excel.XlTextQualifier.xlTextQualifierDoubleQuote                                            	                                        , Tab:true                                    	                                        );                                                               
+            ExcelApp.Visible = true;
 
         }
 

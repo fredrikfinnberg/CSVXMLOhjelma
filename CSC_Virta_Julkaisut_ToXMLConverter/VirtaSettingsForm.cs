@@ -17,7 +17,7 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
             InitializeComponent();
 
             System.Windows.Forms.ToolTip VuosiButton = new System.Windows.Forms.ToolTip();
-            VuosiButton.SetToolTip(this.VuosiRadioButton2015, "Ilmoitusvuosi 2016 on ajankohtainen vasta 2017");
+            // VuosiButton.SetToolTip(this.VuosiRadioButton2015, "Ilmoitusvuosi 2016 on ajankohtainen vasta 2017");
         }
 
         private void SettingsTallennaButton_Click(object sender, EventArgs e)
@@ -25,9 +25,17 @@ namespace CSC_Virta_Julkaisut_ToXMLConverter
 
             if ( VuosiRadioButton2015.Checked ) {               
            
-                CSC_VIRTA_JulkaisutForm.vuosiIlmo = 2015;              
+                CSC_VIRTA_JulkaisutForm.vuosiIlmo = 2016;              
 
             }
+
+            if (VuosiRadioButton2016.Checked)
+            {
+
+                CSC_VIRTA_JulkaisutForm.vuosiIlmo = 2016;
+
+            }
+
 
         }
     }
